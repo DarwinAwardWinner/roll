@@ -1,0 +1,88 @@
+# roll.py: A dice-rolling simulator for RPGs
+
+This was a weekend hobby project inspired by
+[Critical Role](http://geekandsundry.com/shows/critical-role/) and
+other D&D shows and podcasts. While a dice simulator is no substitute
+for physically rolling real dice, it might be useful for anyone who's
+on the go or otherwise unable to access their dice or a flat surface
+to roll them on (or for new players who want to try out RPGs without
+having to spend money on dice first). It supports pretty much
+everything under the
+["Standard Notation" section of the Wikipedia page on dice notation](https://en.wikipedia.org/wiki/Dice_notation#Standard_notation).
+
+## Usage
+
+There are two ways to use this script. Either run it with any number
+of arguments, which will be concatenated and rolled, or run it with no
+arguments to enter interactive mode, where you can type a roll on each
+line and hit enter to roll it. In either case, the last line indicates
+the total roll, and all the lines before it indicate the individual
+dice rolls that led to it. Examples:
+
+```bash
+# Single-roll command-line mode
+$ ~/temp/roll.py 2d4+2
+2016-03-13 14:43:16,690 INFO: Rolling 2d4+2
+2016-03-13 14:43:16,691 INFO: 2d4+2 rolled: 8
+(Individual rolls: [2, 4])
+2016-03-13 14:43:16,691 INFO: Total roll: 8
+# Interactive mode
+$ ~/temp/roll.py
+Enter roll> 2d20-L+5
+2016-03-13 14:43:28,733 INFO: Rolling 2d20-L+5
+2016-03-13 14:43:28,735 INFO: 2d20-L+5 rolled: 15
+(Individual rolls: [10]; Dropped low: [3]; Original rolls: [3, 10])
+2016-03-13 14:43:28,735 INFO: Total roll: 15
+Enter roll> 6d6+6
+2016-03-13 14:43:34,468 INFO: Rolling 6d6+6
+2016-03-13 14:43:34,468 INFO: 6d6+6 rolled: 25
+(Individual rolls: [4, 1, 1, 3, 4, 6])
+2016-03-13 14:43:34,469 INFO: Total roll: 25
+Enter roll> d100
+2016-03-13 14:43:41,854 INFO: Rolling d100
+2016-03-13 14:43:41,854 INFO: d100 rolled: 67
+2016-03-13 14:43:41,855 INFO: Total roll: 67
+Enter roll> d4 + 2d6 + 4 - 3d8 + 6d7/2
+2016-03-13 14:49:17,237 INFO: Rolling d4 + 2d6 + 4 - 3d8 + 6d7/2
+2016-03-13 14:49:17,237 INFO: d4 rolled: 4
+2016-03-13 14:49:17,238 INFO: 2d6 rolled: 7
+(Individual rolls: [6, 1])
+2016-03-13 14:49:17,238 INFO: 3d8 rolled: 13
+(Individual rolls: [6, 5, 2])
+2016-03-13 14:49:17,238 INFO: 6d7 rolled: 19
+(Individual rolls: [2, 4, 7, 2, 1, 3])
+2016-03-13 14:49:17,238 INFO: Total roll: 11
+Enter roll> 4 + 5
+2016-03-13 14:48:13,823 INFO: Rolling 4 + 5
+2016-03-13 14:48:13,823 INFO: Total roll: 9
+Enter roll> exit
+```
+
+As you can see, it not only reports the total, but all the individual
+dice rolls, so if you made a mistake on a modifier or something, you
+don't have to re-roll the entire thing, you can change the modifier
+and re-add the existing dice rolls manually.
+
+Notice the last few examples that demonstrate:
+
+* arbitrarily complex arithmetic expressions involving any number and
+  kind of dice and any number of modifiers, as well as multiplication
+  and division (useful for resistances and critical hits)
+* physically impossible dice, like d7
+* simple constant expressions that don't involve any dice rolls.
+
+(This last feature is useful for re-computing a mis-typed modifier
+without re-rolling the dice.)
+
+## Rolling with advantage/disadvantage and dropping rolls
+
+Some RPGs have a concept of "advantage" or "disadvantage", which just
+means rolling two of the same die and dropping either the lower of the
+two (for advantage) or the higher (for disadvantage). You can do this
+by appending `-L` to drop the lowest roll and `-H` to drop the highest
+one. More generally, you can drop any number of low or high rolls by
+adding a number after the `H` or `L`. One of the examples above shows
+a d20 roll with a +5 modifier and advantage, which is expressed as
+"2d20-L+6". When dropping dice, all the original rolls are reported,
+as well as which ones were dropped, so you always have a full audit
+trail in case your DM asks you what your dice rolls were.
