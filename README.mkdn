@@ -21,13 +21,13 @@ dice rolls that led to it. Examples:
 
 ```bash
 # Single-roll command-line mode
-$ ~/temp/roll.py 2d4+2
+$ ./roll.py 2d4+2
 2016-03-13 14:43:16,690 INFO: Rolling 2d4+2
 2016-03-13 14:43:16,691 INFO: 2d4+2 rolled: 8
 (Individual rolls: [2, 4])
 2016-03-13 14:43:16,691 INFO: Total roll: 8
 # Interactive mode
-$ ~/temp/roll.py
+$ ./roll.py
 Enter roll> 2d20-L+2
 2016-03-13 15:17:24,496 INFO: Rolling 2d20-L+2
 2016-03-13 15:17:24,496 INFO: 2d20-L+2 rolled: 22 (NATURAL 20)
