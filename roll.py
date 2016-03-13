@@ -67,6 +67,12 @@ def roll_dice(s, n=1, mod=0, drop_low=0, drop_high=0):
         kept_rolls.remove(drop)
     total = mod + sum(kept_rolls)
     # TODO: Special reporting for natural 1 and natural 20 (only when a single d20 roll is returned)
+    natural = ''
+    if len(kept_rolls) == 1 and s == 20:
+        if kept_rolls[0] == 1:
+            natural = " (NATURAL 1)"
+        elif kept_rolls[0] == 20:
+            natural = " (NATURAL 20)"
     if n > 1:
         paren_stmts = [ ('Individual rolls', kept_rolls), ]
         if dropped_low_rolls:
@@ -76,9 +82,9 @@ def roll_dice(s, n=1, mod=0, drop_low=0, drop_high=0):
         if dropped_low_rolls or dropped_high_rolls:
             paren_stmts.append( ('Original rolls', rolls) )
         paren_stmt = "; ".join("%s: %s" % (k, repr(v)) for k,v in paren_stmts)
-        logger.info('%s rolled: %s\n(%s)', format_roll(s, n, mod, drop_low, drop_high), total, paren_stmt)
+        logger.info('%s rolled: %s%s\n(%s)', format_roll(s, n, mod, drop_low, drop_high), total, natural, paren_stmt)
     else:
-        logger.info('%s rolled: %s', format_roll(s, n, mod, drop_low, drop_high), total)
+        logger.info('%s rolled: %s%s', format_roll(s, n, mod, drop_low, drop_high), total, natural)
     return total
 
 def _roll_matchgroup(m):

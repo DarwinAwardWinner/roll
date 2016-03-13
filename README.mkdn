@@ -28,11 +28,11 @@ $ ~/temp/roll.py 2d4+2
 2016-03-13 14:43:16,691 INFO: Total roll: 8
 # Interactive mode
 $ ~/temp/roll.py
-Enter roll> 2d20-L+5
-2016-03-13 14:43:28,733 INFO: Rolling 2d20-L+5
-2016-03-13 14:43:28,735 INFO: 2d20-L+5 rolled: 15
-(Individual rolls: [10]; Dropped low: [3]; Original rolls: [3, 10])
-2016-03-13 14:43:28,735 INFO: Total roll: 15
+Enter roll> 2d20-L+2
+2016-03-13 15:17:24,496 INFO: Rolling 2d20-L+2
+2016-03-13 15:17:24,496 INFO: 2d20-L+2 rolled: 22 (NATURAL 20)
+(Individual rolls: [20]; Dropped low: [5]; Original rolls: [5, 20])
+2016-03-13 15:17:24,496 INFO: Total roll: 22
 Enter roll> 6d6+6
 2016-03-13 14:43:34,468 INFO: Rolling 6d6+6
 2016-03-13 14:43:34,468 INFO: 6d6+6 rolled: 25
@@ -61,7 +61,9 @@ Enter roll> exit
 As you can see, it not only reports the total, but all the individual
 dice rolls, so if you made a mistake on a modifier or something, you
 don't have to re-roll the entire thing, you can change the modifier
-and re-add the existing dice rolls manually.
+and re-add the existing dice rolls manually. Also, as a special
+feature, it tells you when you get a natural 1 or a natural 20 on a
+singular d20 roll.
 
 Notice the last few examples that demonstrate:
 
