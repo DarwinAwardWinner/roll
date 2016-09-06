@@ -58,7 +58,7 @@ def roll_dice(s, n=1, mod=0, drop_low=0, drop_high=0):
     if drop_low + drop_high >= n:
         raise ValueError('Dropping too many dice; must keep at least one die.')
     n = int(n)
-    rolls = [ roll_die(s) for i in xrange(n) ]
+    rolls = [ roll_die(s) for i in range(n) ]
     dropped_low_rolls = sorted(rolls)[:drop_low]
     dropped_high_rolls = sorted(rolls, reverse=True)[:drop_high]
     kept_rolls = list(rolls)
@@ -118,7 +118,7 @@ def roll(expr):
         raise Exception("Cannot parse expression %s: %s" % (repr(expr), exc))
 
 def read_roll(handle=sys.stdin):
-    return raw_input("Enter roll> ")
+    return input("Enter roll> ")
 
 if __name__ == '__main__':
     expr = " ".join(sys.argv[1:])
@@ -143,7 +143,7 @@ if __name__ == '__main__':
                         except Exception as exc:
                             logger.error("Error while rolling: %s", repr(exc))
                 except KeyboardInterrupt:
-                    print "\n",
+                    print('')
         except EOFError:
             # Print a newline before exiting
-            print "\n",
+            print('')
