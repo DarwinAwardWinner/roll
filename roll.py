@@ -277,7 +277,7 @@ class RerollSpec(object):
     def __str__(self):
         result = self.type
         if self.operator is not None:
-            result += self.operator + self.value
+            result += self.operator + str(self.value)
         return result
 
     def roll_die(self, sides):
@@ -570,13 +570,16 @@ def _eval_expr_internal(expr, env={}, print_rolls=True, recursed_vars=set()):
         for (op, nextval) in zip(operators, values[1:]):
             opfun = op_dict[op]
             result = opfun(result, nextval)
+        # Corece integral floats to ints
+        if isinstance(result, float) and result.is_integer():
+            result = int(result)
         return result
     else:
         # roll specification
         roller = make_dice_roller(expr)
         result = roller.roll()
         if print_rolls:
-            print(result)
+            print(result, file=sys.stderr)
         return int(result)
 
 def eval_expr(expr, env={}, print_rolls=True):
@@ -596,7 +599,7 @@ def _expr_as_str_internal(expr, env={}, recursed_vars = set()):
             parsed = normalize_expr(var_value)
             return _expr_as_str_internal(parsed, env, recursed_vars = recursed_vars.union([expr]))
         else:
-            raise ValueError('Expression referenced undefined variable {!r}'.format(expr))
+            return expr
     elif 'operator' in expr:
         # Compound expression
         operands = expr[::2]
@@ -716,7 +719,7 @@ if __name__ == '__main__':
                         # We have an assignment operation
                         vname = parsed['varname']
                         if var_name_allowed(vname):
-                            env[vname] = expr_as_str(parsed['expr'], env)
+                            env[vname] = expr_as_str(parsed['expr'])
                             logger.info('Saving {var} as {expr!r}'.format(
                                 var=vname, expr=env[vname],
                             ))
