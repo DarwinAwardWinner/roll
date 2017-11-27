@@ -122,7 +122,7 @@ roll_spec = Group(
 ).setResultsName('roll')
 
 expr_parser = infixNotation(
-    baseExpr=(roll_spec | positive_int | real_num | var_name),
+    baseExpr=(roll_spec ^ positive_int ^ real_num ^ var_name),
     opList=[
         (oneOf('** ^').setResultsName('operator', True), 2, opAssoc.RIGHT),
         (oneOf('* / × ÷').setResultsName('operator', True), 2, opAssoc.LEFT),
@@ -634,11 +634,15 @@ special_command_parser = (
 
 def var_name_allowed(vname):
     '''Disallow variable names like 'help' and 'quit'.'''
-    try:
-        special_command_parser.parseString(vname, True)
-        return False
-    except ParseException:
-        return True
+    parsers = [ special_command_parser, roll_spec ]
+    for parser in [ special_command_parser, roll_spec ]:
+        try:
+            parser.parseString(vname, True)
+            return False
+        except ParseException:
+            pass
+    # If the variable name didn't parse as anything else, it's valid
+    return True
 
 line_parser = (special_command_parser ^ (assignment_parser | expr_parser))
 
@@ -724,7 +728,7 @@ if __name__ == '__main__':
                                 var=vname, expr=env[vname],
                             ))
                         else:
-                            logger.error('You cannot use {!r} as a variable name because it is a special command.'.format(vname))
+                            logger.error('You cannot use {!r} as a variable name.'.format(vname))
                     else:
                         # Just an expression to evaluate
                         result = eval_expr(parsed['expr'], env)
