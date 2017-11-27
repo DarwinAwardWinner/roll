@@ -355,14 +355,14 @@ class DropSpec(object):
         if not isinstance(rolls, list):
             rolls = list(rolls)
         keeping = self.type in ('K', 'k')
-        # if keeping:
-        #     num_to_keep = self.count
-        # else:
-        #     num_to_keep = len(rolls) - self.count
-        # if num_to_keep == 0:
-        #     raise ValueError('Not enough rolls: would drop all rolls')
-        # elif num_to_keep == len(rolls):
-        #     raise ValueError('Keeping too many rolls: would not drop any rolls')
+        if keeping:
+            num_to_keep = self.count
+        else:
+            num_to_keep = len(rolls) - self.count
+        if num_to_keep == 0:
+            raise ValueError('Not enough rolls: would drop all rolls')
+        elif num_to_keep == len(rolls):
+            raise ValueError('Keeping too many rolls: would not drop any rolls')
         rolls.sort()
         if self.type in ('K', 'X', '-H'):
             rolls.reverse()
