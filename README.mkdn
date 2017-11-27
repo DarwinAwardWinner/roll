@@ -5,11 +5,11 @@ other D&D shows and podcasts. While a dice simulator is no substitute
 for physically rolling real dice, it might be useful for anyone who's
 on the go or otherwise unable to access their dice and a flat surface
 to roll them on (or for new players who want to try out RPGs without
-having to spend money on dice first). It supports almost much
-everything under the ["Standard Notation"][2] section of the Wikipedia
-page on dice notation, as well as the syntax in this online [RPG Dice
-Roller][3] and this [Android App][4]. (One notable exception is
-non-standard Fate dice, i.e. "dF.1", which are not supported.)
+having to spend money on dice first). It supports almost everything in
+the ["Standard Notation"][2] section of the Wikipedia page on dice
+notation, as well as the syntax in this online [RPG Dice Roller][3]
+and this [Android App][4]. (One notable exception is non-standard Fate
+dice, i.e. "dF.1", which are not supported.)
 
 [1]: http://geekandsundry.com/shows/critical-role/
 [2]: https://en.wikipedia.org/wiki/Dice_notation#Standard_notation
@@ -123,3 +123,11 @@ As you can see, it not only reports the total for each roll, but all
 the individual dice rolls as well, so you can understand how it came
 up with the total. This also lets you figure out whether you rolled a
 natural 20 or natural 1 on the die.
+
+## Known Issues
+
+* There is no sanity checking for dice roll effects that will never
+  take effect, such as exploding a d6 on 7 (i.e. `d6!=7)
+* Error messages are pretty much just reported as is, with no attempt
+  to explain or contextualize them.
+* Nonstandard Fate dice (i.e. "dF.1") are not supported.
