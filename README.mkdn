@@ -122,7 +122,9 @@ Enter roll> quit
 As you can see, it not only reports the total for each roll, but all
 the individual dice rolls as well, so you can understand how it came
 up with the total. This also lets you figure out whether you rolled a
-natural 20 or natural 1 on the die.
+natural 20 or natural 1 on the die for critical hits and misses, and
+if your damage roll involves multiple different kinds of damage, it
+lets you figure out how much of each damage type was dealt.
 
 ## Known Issues
 
