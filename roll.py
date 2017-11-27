@@ -648,28 +648,31 @@ line_parser = (special_command_parser ^ (assignment_parser | expr_parser))
 
 def print_interactive_help():
     print('\n' + '''
-To make a roll, type in the roll in dice notation, e.g. '4d4 + 4'. All
-dice notation forms listed in
-https://www.critdice.com/roll-advanced-dice and
-http://rpg.greenimp.co.uk/dice-roller/ should be supported.
-Expressions can include addition, subtraction, multiplication,
-division, and exponentiation.
+
+To make a roll, type in the roll in dice notation, e.g. '4d4 + 4'.
+Nearly all dice notation forms listed in the following references should be supported:
+
+- http://rpg.greenimp.co.uk/dice-roller/
+- https://www.critdice.com/roll-advanced-dice
+
+Expressions can include numeric constants, addition, subtraction,
+multiplication, division, and exponentiation.
 
 To assign a variable, use 'VAR = VALUE'. For example 'health_potion =
-4d4+4'. Subsequent roll expressions can refer to this variable, whose
-value will be substituted in to the expression.
+2d4+2'. Subsequent roll expressions (and other variables) can refer to
+this variable, whose value will be substituted in to the expression.
 
 If a variable's value includes any dice rolls, those dice will be
-rolled (and produce a different value) every each time the variable is
+rolled (and produce a different value) every time the variable is
 used.
 
-To delete a variable, type 'del VAR'.
+Special commands:
 
-To show the values of all currently assigned variables, type 'vars'.
+- To show the values of all currently assigned variables, type 'vars'.
+- To delete a previously defined variable, type 'del VAR'.
+- To show this help text, type 'help'.
+- To quit, type 'quit'.
 
-To show this help text, type 'help'.
-
-To quit, type 'quit'.
     '''.strip() + '\n', file=sys.stdout)
 
 def print_vars(env):
