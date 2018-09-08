@@ -47,7 +47,7 @@ class IntegerValidator(object):
         return x
 
 def normalize_die_type(x):
-    if x == 'F':
+    if x in ('F', 'F.1', 'F.2'):
         return x
     elif x == '%':
         return 100
@@ -116,7 +116,7 @@ count_spec = Group(
 roll_spec = Group(
     (positive_int | ImplicitToken(1)).setResultsName('dice_count') +
     CaselessLiteral('d') +
-    (positive_int | oneOf('% F')).setResultsName('die_type') +
+    (positive_int | oneOf('% F F.1 F.2')).setResultsName('die_type') +
     Optional(reroll_spec ^ drop_spec) +
     Optional(count_spec)
 ).setResultsName('roll')
@@ -139,9 +139,17 @@ Supports any valid integer number of sides as well as 'F' for a fate
 die, which can return -1, 0, or 1 with equal probability.
 
     '''
-    if sides == 'F':
+    if sides in ('F', 'F.2'):
         # Fate die = 1d3-2
         return roll_die(3) - 2
+    elif sides == 'F.1':
+        d6 = roll_die(6)
+        if d6 == 1:
+            return -1
+        elif d6 == 6:
+            return 1
+        else:
+            return 0
     else:
         return randint(1, int(sides))
 

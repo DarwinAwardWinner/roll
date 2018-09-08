@@ -8,8 +8,7 @@ to roll them on (or for new players who want to try out RPGs without
 having to spend money on dice first). It supports almost everything in
 the ["Standard Notation"][2] section of the Wikipedia page on dice
 notation, as well as the syntax in this online [RPG Dice Roller][3]
-and this [Android App][4]. (One notable exception is non-standard Fate
-dice, i.e. "dF.1", which are not supported.)
+and this [Android App][4].
 
 [1]: http://geekandsundry.com/shows/critical-role/
 [2]: https://en.wikipedia.org/wiki/Dice_notation#Standard_notation
@@ -132,4 +131,3 @@ lets you figure out how much of each damage type was dealt.
   take effect, such as exploding a d6 on 7 (i.e. `d6!=7)
 * Error messages are pretty much just reported as is, with no attempt
   to explain or contextualize them.
-* Nonstandard Fate dice (i.e. "dF.1") are not supported.
