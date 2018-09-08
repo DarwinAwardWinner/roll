@@ -7,7 +7,7 @@ import sys
 import readline
 import operator
 from numbers import Number
-from random import randint
+from random import SystemRandom
 from pyparsing import Regex, oneOf, Optional, Group, Combine, Literal, CaselessLiteral, ZeroOrMore, StringStart, StringEnd, opAssoc, infixNotation, ParseException, Empty, pyparsing_common, ParseResults, White, Suppress
 logFormatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -16,6 +16,9 @@ logger.handlers = []
 logger.addHandler(logging.StreamHandler())
 for handler in logger.handlers:
     handler.setFormatter(logFormatter)
+
+sysrand = SystemRandom()
+randint = sysrand.randint
 
 @attr.s
 class IntegerValidator(object):
