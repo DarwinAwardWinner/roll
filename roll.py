@@ -26,7 +26,7 @@ EXPR_COLOR = "green"
 RESULT_COLOR = "red"
 DETAIL_COLOR = "yellow"
 
-logFormatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
+logFormatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s', '%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.handlers = []
@@ -607,7 +607,7 @@ def _eval_expr_internal(expr, env={}, print_rolls=True, recursed_vars=set()):
         roller = make_dice_roller(expr)
         result = roller.roll()
         if print_rolls:
-            print(result, file=sys.stderr)
+            print(result)
         return int(result)
 
 def eval_expr(expr, env={}, print_rolls=True):
@@ -705,11 +705,11 @@ Special commands:
 
 def print_vars(env):
     if len(env):
-        logger.info('Currently defined variables:')
+        print('Currently defined variables:')
         for k in sorted(env.keys()):
-            print('{} = {!r}'.format(k, env[k]), file=sys.stderr)
+            print('{} = {!r}'.format(k, env[k]))
     else:
-        logger.info('No vars are currently defined.')
+        print('No variables are currently defined.')
 
 if __name__ == '__main__':
     expr_string = " ".join(sys.argv[1:])
@@ -719,7 +719,7 @@ if __name__ == '__main__':
             # on the command line only roll expressions are valid.
             expr = expr_parser.parseString(expr_string, True)
             result = eval_expr(expr)
-            logger.info('Total roll for {expr}: {result}'.format(
+            print('Total roll for {expr}: {result}'.format(
                 expr=color(expr_as_str(expr), EXPR_COLOR),
                 result=color(result, RESULT_COLOR),
             ))
@@ -745,7 +745,7 @@ if __name__ == '__main__':
                 elif 'delete' in parsed:
                     vname = parsed['varname']
                     if vname in env:
-                        logger.info('Deleting saved value for "{var}".'.format(var=color(vname, RESULT_COLOR)))
+                        print('Deleting saved value for "{var}".'.format(var=color(vname, RESULT_COLOR)))
                         del env[vname]
                     else:
                         logger.error('Variable "{var}" is not defined.'.format(var=color(vname, RESULT_COLOR)))
@@ -755,7 +755,7 @@ if __name__ == '__main__':
                         vname = parsed['varname']
                         if var_name_allowed(vname):
                             env[vname] = expr_as_str(parsed['expr'])
-                            logger.info('Saving "{var}" as "{expr}"'.format(
+                            print('Saving "{var}" as "{expr}"'.format(
                                 var=color(vname, RESULT_COLOR),
                                 expr=color(env[vname], EXPR_COLOR),
                             ))
@@ -764,14 +764,15 @@ if __name__ == '__main__':
                     else:
                         # Just an expression to evaluate
                         result = eval_expr(parsed['expr'], env)
-                        logger.info('Total roll for {expr}: {result}'.format(
+                        print('Total roll for {expr}: {result}'.format(
                             expr=color(expr_as_str(parsed, env), EXPR_COLOR),
                             result=color(result, RESULT_COLOR),
                         ))
-                print('', file=sys.stderr)
+                print('')
             except KeyboardInterrupt:
-                print('', file=sys.stderr)
+                print('')
             except EOFError:
+                print('')
                 logger.info('Quitting.')
                 break
             except Exception as exc:
