@@ -9,6 +9,23 @@ import operator
 from numbers import Number
 from random import SystemRandom
 from pyparsing import Regex, oneOf, Optional, Group, Combine, Literal, CaselessLiteral, ZeroOrMore, StringStart, StringEnd, opAssoc, infixNotation, ParseException, Empty, pyparsing_common, ParseResults, White, Suppress
+
+try:
+    import colorama
+    colorama.init()
+    from colors import color
+except ImportError:
+    # Fall back to no color
+    def color(s, *args, **kwargs):
+        '''Fake color function that does nothing.
+
+        Used when the colors module cannot be imported.'''
+        return s
+
+EXPR_COLOR = "green"
+RESULT_COLOR = "red"
+DETAIL_COLOR = "yellow"
+
 logFormatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -191,9 +208,9 @@ def format_dice_roll_list(rolls, always_list=False):
     if len(rolls) == 0:
         raise ValueError('Need at least one die rolled')
     elif len(rolls) == 1 and not always_list:
-        return str(rolls[0])
+        return color(str(rolls[0]), DETAIL_COLOR)
     else:
-        return '[' + ",".join(map(str, rolls)) + ']'
+        return '[' + color(" ".join(map(str, rolls)), DETAIL_COLOR) + ']'
 
 @attr.s
 class DiceRolled(object):
@@ -220,7 +237,7 @@ class DiceRolled(object):
 
     def __str__(self):
         if self.roll_desc:
-            prefix = '{roll} rolled'.format(roll=self.roll_desc)
+            prefix = '{roll} rolled'.format(roll=color(self.roll_desc, EXPR_COLOR))
         else:
             prefix = 'Rolled'
         if self.dropped_results:
@@ -228,9 +245,9 @@ class DiceRolled(object):
         else:
             drop = ''
         if self.success_count is not None:
-            tot = ', Total successes: ' + str(self.total())
+            tot = ', Total successes: ' + color(str(self.total()), DETAIL_COLOR)
         elif len(self.dice_results) > 1:
-            tot = ', Total: ' + str(self.total())
+            tot = ', Total: ' + color(str(self.total()), DETAIL_COLOR)
         else:
             tot = ''
         return '{prefix}: {results}{drop}{tot}'.format(
@@ -702,9 +719,9 @@ if __name__ == '__main__':
             # on the command line only roll expressions are valid.
             expr = expr_parser.parseString(expr_string, True)
             result = eval_expr(expr)
-            logger.info("Total roll for {expr!r}: {result}".format(
-                expr=expr_as_str(expr),
-                result=result
+            logger.info('Total roll for {expr}: {result}'.format(
+                expr=color(expr_as_str(expr), EXPR_COLOR),
+                result=color(result, RESULT_COLOR),
             ))
         except Exception as exc:
             logger.error("Error while rolling: %s", repr(exc))
@@ -728,27 +745,28 @@ if __name__ == '__main__':
                 elif 'delete' in parsed:
                     vname = parsed['varname']
                     if vname in env:
-                        logger.info('Deleting saved value for {var!r}.'.format(var=vname))
+                        logger.info('Deleting saved value for "{var}".'.format(var=color(vname, RESULT_COLOR)))
                         del env[vname]
                     else:
-                        logger.error('Variable {var!r} is not defined.'.format(var=vname))
+                        logger.error('Variable "{var}" is not defined.'.format(var=color(vname, RESULT_COLOR)))
                 elif re.search("\\S", expr_string):
                     if 'assignment' in parsed:
                         # We have an assignment operation
                         vname = parsed['varname']
                         if var_name_allowed(vname):
                             env[vname] = expr_as_str(parsed['expr'])
-                            logger.info('Saving {var} as {expr!r}'.format(
-                                var=vname, expr=env[vname],
+                            logger.info('Saving "{var}" as "{expr}"'.format(
+                                var=color(vname, RESULT_COLOR),
+                                expr=color(env[vname], EXPR_COLOR),
                             ))
                         else:
                             logger.error('You cannot use {!r} as a variable name.'.format(vname))
                     else:
                         # Just an expression to evaluate
                         result = eval_expr(parsed['expr'], env)
-                        logger.info('Total roll for {expr!r}: {result}'.format(
-                            expr=expr_as_str(parsed, env),
-                            result=result,
+                        logger.info('Total roll for {expr}: {result}'.format(
+                            expr=color(expr_as_str(parsed, env), EXPR_COLOR),
+                            result=color(result, RESULT_COLOR),
                         ))
                 print('', file=sys.stderr)
             except KeyboardInterrupt:
