@@ -719,7 +719,7 @@ if __name__ == '__main__':
             # on the command line only roll expressions are valid.
             expr = expr_parser.parseString(expr_string, True)
             result = eval_expr(expr)
-            print('Total roll for {expr}: {result}'.format(
+            print('Result: {result} (rolled {expr})'.format(
                 expr=color(expr_as_str(expr), EXPR_COLOR),
                 result=color(result, RESULT_COLOR),
             ))
@@ -764,7 +764,7 @@ if __name__ == '__main__':
                     else:
                         # Just an expression to evaluate
                         result = eval_expr(parsed['expr'], env)
-                        print('Total roll for {expr}: {result}'.format(
+                        print('Result: {result} (rolled {expr})'.format(
                             expr=color(expr_as_str(parsed, env), EXPR_COLOR),
                             result=color(result, RESULT_COLOR),
                         ))
