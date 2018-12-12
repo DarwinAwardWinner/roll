@@ -650,10 +650,6 @@ def _eval_expr_internal(
             for (op, nextval) in zip(operators, values[1:]):
                 opfun = op_dict[op]
                 result = opfun(result, nextval)
-            # https://github.com/python/mypy/issues/6060
-            if isinstance(result, float) and result.is_integer(): # type: ignore
-                # Corece integral floats to ints
-                result = int(result)
             return result
         else:
             # roll specification
@@ -786,7 +782,7 @@ if __name__ == '__main__':
             result = eval_expr(expr)
             print('Result: {result} (rolled {expr})'.format(
                 expr=color(expr_as_str(expr), EXPR_COLOR),
-                result=color(result, RESULT_COLOR),
+                result=color("{:g}".format(result), RESULT_COLOR),
             ))
         except Exception as exc:
             logger.error("Error while rolling: %s", repr(exc))
@@ -831,7 +827,7 @@ if __name__ == '__main__':
                         result = eval_expr(parsed['expr'], env)
                         print('Result: {result} (rolled {expr})'.format(
                             expr=color(expr_as_str(parsed, env), EXPR_COLOR),
-                            result=color(result, RESULT_COLOR),
+                            result=color("{:g}".format(result), RESULT_COLOR),
                         ))
                 print('')
             except KeyboardInterrupt:
