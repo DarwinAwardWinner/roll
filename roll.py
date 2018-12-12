@@ -825,7 +825,7 @@ if __name__ == '__main__':
                             logger.error('You cannot use {!r} as a variable name.'.format(vname))
                     else:
                         # Just an expression to evaluate
-                        result = eval_expr(parsed['expr'], env)
+                        result = eval_expr(parsed, env)
                         print('Result: {result} (rolled {expr})'.format(
                             expr=color(expr_as_str(parsed, env), EXPR_COLOR),
                             result=color("{:g}".format(result), RESULT_COLOR),
