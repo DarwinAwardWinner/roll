@@ -6,6 +6,7 @@ import re
 import sys
 import readline
 import operator
+import traceback
 from numbers import Number
 from random import SystemRandom
 from pyparsing import ParserElement, Token, Regex, oneOf, Optional, Group, Combine, Literal, CaselessLiteral, ZeroOrMore, StringStart, StringEnd, opAssoc, infixNotation, ParseException, Empty, pyparsing_common, ParseResults, White, Suppress
@@ -837,6 +838,7 @@ if __name__ == '__main__':
                 logger.info('Quitting.')
                 break
             except Exception as exc:
-                logger.error('Error while evaluating {expr!r}: {ex!r}'.format(
-                    expr=expr_string, ex=exc,
+                logger.error('Error while evaluating {expr!r}:\n{tb}'.format(
+                    expr=expr_string,
+                    tb=traceback.format_exc(),
                 ))
