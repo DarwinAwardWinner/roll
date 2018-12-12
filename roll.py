@@ -209,6 +209,7 @@ class DieRolled(int):
     formatter: str
 
     def __new__(cls: type, value: int, formatter: str = '{}') -> 'DieRolled':
+        # https://github.com/python/typeshed/issues/2686
         newval = super(DieRolled, cls).__new__(cls, value) # type: ignore
         newval.formatter = formatter
         return newval
