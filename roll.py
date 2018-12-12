@@ -608,8 +608,7 @@ op_dict: Dict[str, Callable] = {
     '^': operator.pow,
 }
 
-NumericType = Union[float,int]
-ExprType = Union[NumericType, str, ParseResults]
+ExprType = Union[float, str, ParseResults]
 
 def normalize_expr(expr: ExprType) -> ParseResults:
     if isinstance(expr, str):
@@ -624,7 +623,7 @@ def _eval_expr_internal(
         expr: ExprType,
         env: Dict[str, str] = {},
         print_rolls: bool = True,
-        recursed_vars: Set[str] = set()) -> NumericType:
+        recursed_vars: Set[str] = set()) -> float:
     if isinstance(expr, float) or isinstance(expr, int):
         # Numeric literal
         return expr
@@ -663,7 +662,7 @@ def _eval_expr_internal(
 
 def eval_expr(expr: ExprType,
               env: Dict[str,str] = {},
-              print_rolls: bool = True) -> NumericType:
+              print_rolls: bool = True) -> float:
     expr = normalize_expr(expr)
     return _eval_expr_internal(expr, env, print_rolls)
 
