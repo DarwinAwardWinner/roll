@@ -9,9 +9,10 @@ import operator
 import traceback
 from numbers import Number
 from random import SystemRandom
-from pyparsing import ParserElement, Token, Regex, oneOf, Optional, Group, Combine, Literal, CaselessLiteral, ZeroOrMore, StringStart, StringEnd, opAssoc, infixNotation, ParseException, Empty, pyparsing_common, ParseResults, White, Suppress
+from copy import copy
 
-from typing import Union, List, Any, Tuple, Sequence, Dict, Callable, Set, TextIO
+from arpeggio import ParserPython, RegExMatch, Optional, ZeroOrMore, OneOrMore, OrderedChoice, Sequence, Combine, Not, EOF, PTNodeVisitor, visit_parse_tree, ParseTreeNode, SemanticActionResults
+from typing import Union, List, Any, Tuple, Dict, Callable, Set, TextIO
 from typing import Optional as OptionalType
 
 try:
@@ -41,700 +42,223 @@ for handler in logger.handlers:
 sysrand = SystemRandom()
 randint = sysrand.randint
 
-def int_limit_converter(x: Any) -> OptionalType[int]:
-    if x is None:
-        return None
-    else:
-        return int(x)
-
-@attr.s
-class IntegerValidator(object):
-    min_val: OptionalType[int] = attr.ib(default = None, converter = int_limit_converter)
-    max_val: OptionalType[int] = attr.ib(default = None, converter = int_limit_converter)
-    handle_float: str = attr.ib(default = 'exception')
-    @handle_float.validator
-    def validate_handle_float(self, attribute, value):
-        assert value in ('exception', 'truncate', 'round')
-    value_name: str = attr.ib(default = "value")
-
-    def __call__(self, value: Any) -> int:
-        xf: float
-        x: int
-        try:
-            xf = float(value)
-        except ValueError:
-            raise ValueError('{} {} does not look like a number'.format(self.value_name, value))
-        if not xf.is_integer():
-            if self.handle_float == 'exception':
-                raise ValueError('{} {} is not an integer'.format(self.value_name, value))
-            elif self.handle_float == 'truncate':
-                x = int(xf)
-            else:
-                x = round(xf)
-        else:
-            x = int(xf)
-        if self.min_val is not None and x < self.min_val:
-                raise ValueError('{} {} is too small; must be at least {}'.format(self.value_name, value, self.min_val))
-        if self.max_val is not None and x > self.max_val:
-                raise ValueError('{} {} is too large; must be at most {}'.format(self.value_name, value, self.max_val))
-        return x
-
-die_face_num_validator = IntegerValidator(
-    min_val = 2, handle_float = 'exception',
-    value_name = 'die type',
-)
-
-DieFaceType = Union[int, str]
-def is_fate_face(x: DieFaceType) -> bool:
-    if isinstance(x, int):
-        return False
-    else:
-        x = str(x).upper()
-        return x in ('F', 'F.1', 'F.2')
-
-def normalize_die_type(x: DieFaceType) -> DieFaceType:
-    if is_fate_face(x):
-        return str(x).upper()
-    elif x == '%':
-        return 100
-    else:
-        return die_face_num_validator(x)
-
-dice_count_validator = IntegerValidator(
-    min_val = 1, handle_float = 'exception',
-    value_name = 'dice count'
-)
-
-# Just a named function wrapper for dice_count_validator
-def normalize_dice_count(x: Any) -> int:
-    return dice_count_validator(x)
-
-def ImplicitToken(x) -> ParserElement:
-    '''Like pyparsing.Empty, but yields one or more tokens instead of nothing.'''
-    return Empty().setParseAction(lambda toks: x)
-
-# TODO: Look at http://infohost.nmt.edu/tcc/help/pubs/pyparsing/web/classes.html#class-ParserElement
-
 # Implementing the syntax described here: https://www.critdice.com/roll-advanced-dice
 # https://stackoverflow.com/a/23956778/125921
 
-# https://stackoverflow.com/a/46583691/125921
+# Whitespace parsing
+def Whitespace(): return RegExMatch(r'\s+')
+def OpWS(): return Optional(Whitespace)
 
-var_name: ParserElement = pyparsing_common.identifier.copy().setResultsName('varname')
-real_num: ParserElement = pyparsing_common.fnumber.copy()
-positive_int: ParserElement = pyparsing_common.integer.copy().setParseAction(lambda toks: [ IntegerValidator(min_val=1)(toks[0]) ])
-
-drop_type: ParserElement = oneOf('K k X x -H -L')
-drop_spec: ParserElement = Group(
-    drop_type.setResultsName('type') +
-    (positive_int | ImplicitToken(1)).setResultsName('count')
-).setResultsName('drop')
-
-pos_int_implicit_one: ParserElement = (positive_int | ImplicitToken(1))
-
-comparator_type: ParserElement = oneOf('<= < >= > ≤ ≥ =')
-
-reroll_type: ParserElement = Combine(oneOf('R r') ^ ( oneOf('! !!') + Optional('p')))
-reroll_spec: ParserElement = Group(
-    reroll_type.setResultsName('type') +
-    Optional(
-        (comparator_type | ImplicitToken('=')).setResultsName('operator') + \
-        positive_int.setResultsName('value')
+# Number parsing
+def Digits(): return RegExMatch('[0-9]+')
+def NonzeroDigits():
+    '''Digits with at least one nonzero number.'''
+    return RegExMatch('0*[1-9][0-9]*')
+def Sign(): return ['+', '-']
+def Integer(): return Optional(Sign), Digits
+def PositiveInteger(): return Optional('+'), Digits
+def FloatingPoint():
+    return (
+        Optional(Sign),
+        [
+            # e.g. '1.', '1.0'
+            (Digits, '.', Optional(Digits)),
+            # e.g. '.1'
+            ('.', Digits),
+        ]
     )
-).setResultsName('reroll')
+def Scientific():
+    return ([FloatingPoint, Integer], RegExMatch('[eE]'), Integer)
+def Number(): return Combine([Scientific, FloatingPoint, Integer])
 
-count_spec: ParserElement = Group(
-    Group(
-        comparator_type.setResultsName('operator') + \
-        positive_int.setResultsName('value')
-    ).setResultsName('success_condition') +
-    Optional(
-        Literal('f') +
-        Group(
-            comparator_type.setResultsName('operator') + \
-            positive_int.setResultsName('value')
-        ).setResultsName('failure_condition')
-    )
-).setResultsName('count_successes')
-
-roll_spec: ParserElement = Group(
-    (positive_int | ImplicitToken(1)).setResultsName('dice_count') +
-    CaselessLiteral('d') +
-    (positive_int | oneOf('% F F.1 F.2')).setResultsName('die_type') +
-    Optional(reroll_spec ^ drop_spec) +
-    Optional(count_spec)
-).setResultsName('roll')
-
-expr_parser: ParserElement = infixNotation(
-    baseExpr=(roll_spec ^ positive_int ^ real_num ^ var_name),
-    opList=[
-        (oneOf('** ^').setResultsName('operator', True), 2, opAssoc.RIGHT),
-        (oneOf('* / × ÷').setResultsName('operator', True), 2, opAssoc.LEFT),
-        (oneOf('+ -').setResultsName('operator', True), 2, opAssoc.LEFT),
-    ]
-).setResultsName('expr')
-
-assignment_parser: ParserElement = var_name + Literal('=').setResultsName('assignment') + expr_parser
-
-def roll_die(sides: DieFaceType = 6) -> int:
-    '''Roll a single die.
-
-Supports any valid integer number of sides as well as 'F' for a fate
-die, which can return -1, 0, or 1 with equal probability.
-
-    '''
-    if sides in ('F', 'F.2'):
-        # Fate die = 1d3-2
-        return roll_die(3) - 2
-    elif sides == 'F.1':
-        d6 = roll_die(6)
-        if d6 == 1:
-            return -1
-        elif d6 == 6:
-            return 1
+def ReservedWord():
+    '''Matches identifiers that aren't allowed as variable names.'''
+    command_word_parsers = []
+    for cmd_type in Command():
+        cmd_parser = cmd_type()
+        if isinstance(cmd_parser, tuple):
+            command_word_parsers.append(cmd_parser[0])
         else:
-            return 0
-    else:
-        return randint(1, int(sides))
+            command_word_parsers.append(cmd_parser)
+    return([
+        # Starts with a roll expression
+        RollExpr,
+        # Matches a command word exactly
+        (command_word_parsers, [RegExMatch('[^A-Za-z0-9_]'), EOF]),
+    ])
 
-class DieRolled(int):
-    '''Subclass of int that allows a string suffix.
-
-    This is meant for recording the result of rolling a die. The
-    suffix is purely cosmetic, for the purposes of string conversion.
-    It can be used to indicate a die roll that has been re-rolled or
-    exploded, or to indicate a critical hit/miss.
-
-    '''
-    formatter: str
-
-    def __new__(cls: type, value: int, formatter: str = '{}') -> 'DieRolled':
-        # https://github.com/python/typeshed/issues/2686
-        newval = super(DieRolled, cls).__new__(cls, value) # type: ignore
-        newval.formatter = formatter
-        return newval
-
-    def __str__(self) -> str:
-        return self.formatter.format(super().__str__())
-
-    def __repr__(self) -> str:
-        if self.formatter != '{}':
-            return 'DieRolled(value={value!r}, formatter={formatter!r})'.format(
-                value=int(self),
-                formatter=self.formatter,
-            )
-        else:
-            return 'DieRolled({value!r})'.format(value=int(self))
-
-def normalize_dice_roll_list(value: List[Any]) -> List[int]:
-    result = []
-    for x in value:
-        if isinstance(x, int):
-            result.append(x)
-        else:
-            result.append(int(x))
-    return result
-
-def format_dice_roll_list(rolls: List[int], always_list: bool = False) -> str:
-    if len(rolls) == 0:
-        raise ValueError('Need at least one die rolled')
-    elif len(rolls) == 1 and not always_list:
-        return color(str(rolls[0]), DETAIL_COLOR)
-    else:
-        return '[' + color(" ".join(map(str, rolls)), DETAIL_COLOR) + ']'
-
-def int_or_none(x: OptionalType[Any]) -> OptionalType[int]:
-    if x is None:
-        return None
-    else:
-        return int(x)
-
-@attr.s
-class DiceRolled(object):
-    '''Class representing the result of rolling one or more similar dice.'''
-    dice_results: List[int] = attr.ib(converter = normalize_dice_roll_list)
-    @dice_results.validator
-    def validate_dice_results(self, attribute, value):
-        if len(value) == 0:
-            raise ValueError('Need at least one non-dropped roll')
-    dropped_results: List[int] = attr.ib(
-        default = attr.Factory(list),
-        converter = normalize_dice_roll_list)
-    roll_desc: str = attr.ib(default = '', converter = str)
-    success_count: OptionalType[int] = attr.ib(default = None, converter = int_or_none)
-
-    def total(self) -> int:
-        if self.success_count is not None:
-            return int(self.success_count)
-        else:
-            return sum(self.dice_results)
-
-    def __str__(self) -> str:
-        if self.roll_desc:
-            prefix = '{roll} rolled'.format(roll=color(self.roll_desc, EXPR_COLOR))
-        else:
-            prefix = 'Rolled'
-        if self.dropped_results:
-            drop = ' (dropped {dropped})'.format(dropped = format_dice_roll_list(self.dropped_results))
-        else:
-            drop = ''
-        if self.success_count is not None:
-            tot = ', Total successes: ' + color(str(self.total()), DETAIL_COLOR)
-        elif len(self.dice_results) > 1:
-            tot = ', Total: ' + color(str(self.total()), DETAIL_COLOR)
-        else:
-            tot = ''
-        return '{prefix}: {results}{drop}{tot}'.format(
-            prefix=prefix,
-            results=format_dice_roll_list(self.dice_results),
-            drop=drop,
-            tot=tot,
-        )
-
-    def __int__(self) -> int:
-        return self.total()
-
-    def __float__(self) -> float:
-        return float(self.total())
-
-def validate_by_parser(parser):
-    '''Return a validator that validates anything parser can parse.'''
-    def private_validator(instance, attribute, value):
-        parser.parseString(str(value), True)
-    return private_validator
-
-@attr.s
-class Comparator(object):
-    cmp_dict = {
-        '<=': operator.le,
-        '<': operator.lt,
-        '>=': operator.ge,
-        '>': operator.gt,
-        '≤': operator.le,
-        '≥': operator.ge,
-        '=': operator.eq,
-    }
-    operator: str = attr.ib(converter = str,
-                            validator = validate_by_parser(comparator_type))
-    value: int = attr.ib(converter = int,
-                         validator = validate_by_parser(positive_int))
-
-    def __str__(self) -> str:
-        return '{op}{val}'.format(op=self.operator, val=self.value)
-
-    def compare(self, x) -> bool:
-        '''Return True if x satisfies the comparator.
-
-        In other words, x is placed on the left-hand side of the
-        comparison, the Comparator's value is placed on the right hand
-        side, and the truth value of the resulting test is returned.
-
-        '''
-        return self.cmp_dict[self.operator](x, self.value)
-
-@attr.s
-class RerollSpec(object):
-    # Yes, it has to be called type
-    type: str = attr.ib(converter = str, validator=validate_by_parser(reroll_type))
-    operator: OptionalType[str] = attr.ib(default = None)
-    value: OptionalType[int] = attr.ib(default = None)
-
-    def __attrs_post_init__(self):
-        if (self.operator is None) != (self.value is None):
-            raise ValueError('Operator and value must be provided together')
-
-    def __str__(self) -> str:
-        result = self.type
-        if self.operator is not None:
-            result += self.operator + str(self.value)
-        return result
-
-    def roll_die(self, sides: DieFaceType) -> List[int]:
-        '''Roll a single die, following specified re-rolling rules.
-
-        Returns a list of rolls, since some types of re-rolling
-        collect the result of multiple die rolls.
-
-        '''
-        if is_fate_face(sides):
-            raise ValueError("Re-rolling/exploding is incompatible with Fate dice")
-        sides = int(sides)
-
-        cmpr: Comparator
-        if self.value is None:
-            if self.type in ('R', 'r'):
-                cmpr = Comparator('=', 1)
-            else:
-                cmpr = Comparator('=', sides)
-        else:
-            cmpr = Comparator(self.operator, self.value)
-
-        if self.type == 'r':
-            # Single reroll
-            roll = roll_die(sides)
-            if cmpr.compare(roll):
-                roll = DieRolled(roll_die(sides), '{}' + self.type)
-            return [ roll ]
-        elif self.type == 'R':
-            # Indefinite reroll
-            roll = roll_die(sides)
-            while cmpr.compare(roll):
-                roll = DieRolled(roll_die(sides), '{}' + self.type)
-            return [ roll ]
-        elif self.type in ['!', '!!', '!p', '!!p']:
-            # Explode/penetrate/compound
-            all_rolls: List[int] = [ roll_die(sides) ]
-            while cmpr.compare(all_rolls[-1]):
-                all_rolls.append(roll_die(sides))
-            # If we never re-rolled, no need to do anything special
-            if len(all_rolls) == 1:
-                return all_rolls
-            # For penetration, subtract 1 from all rolls except the first
-            if self.type.endswith('p'):
-                for i in range(1, len(all_rolls)):
-                    all_rolls[i] -= 1
-            # For compounding, return the sum
-            if self.type.startswith('!!'):
-                total = sum(all_rolls)
-                return [ DieRolled(total, '{}' + self.type) ]
-            else:
-                for i in range(0, len(all_rolls)-1):
-                    all_rolls[i] = DieRolled(all_rolls[i], '{}' + self.type)
-                return all_rolls
-        else:
-            raise Exception('Unknown reroll type: {}'.format(self.type))
-
-@attr.s
-class DropSpec(object):
-    # Yes, it has to be called type
-    type: str = attr.ib(converter = str, validator=validate_by_parser(drop_type))
-    count: int = attr.ib(default = 1, converter = int, validator=validate_by_parser(positive_int))
-
-    def __str__(self) -> str:
-        if self.count > 1:
-            return self.type + str(self.count)
-        else:
-            return self.type
-
-    def drop_rolls(self, rolls: List[int]) -> Tuple[List[int], List[int]]:
-        '''Drop the appripriate rolls from a list of rolls.
-
-        Returns a 2-tuple of roll lists. The first list is the kept
-        rolls, and the second list is the dropped rolls.
-
-        The order of the rolls is not preserved. (TODO FIX THIS)
-
-        '''
-        if not isinstance(rolls, list):
-            rolls = list(rolls)
-        keeping = self.type in ('K', 'k')
-        if keeping:
-            num_to_keep = self.count
-        else:
-            num_to_keep = len(rolls) - self.count
-        if num_to_keep == 0:
-            raise ValueError('Not enough rolls: would drop all rolls')
-        elif num_to_keep == len(rolls):
-            raise ValueError('Keeping too many rolls: would not drop any rolls')
-        rolls.sort()
-        if self.type in ('K', 'X', '-H'):
-            rolls.reverse()
-        (head, tail) = rolls[:self.count], rolls[self.count:]
-        if keeping:
-            (kept, dropped) = (head, tail)
-        else:
-            (kept, dropped) = (tail, head)
-        return (kept, dropped)
-
-@attr.s
-class DiceRoller(object):
-    die_type: DieFaceType = attr.ib(converter = normalize_die_type)
-    dice_count: int = attr.ib(default = 1, converter = normalize_dice_count)
-    reroll_spec: OptionalType[RerollSpec] = attr.ib(default = None)
-    @reroll_spec.validator
-    def validate_reroll_spec(self, attribute, value):
-        if value is not None:
-            assert isinstance(value, RerollSpec)
-    drop_spec: OptionalType[DropSpec] = attr.ib(default = None)
-    @drop_spec.validator
-    def validate_drop_spec(self, attribute, value):
-        if value is not None:
-            assert isinstance(value, DropSpec)
-    success_comparator: OptionalType[Comparator] = attr.ib(default = None)
-    failure_comparator: OptionalType[Comparator] = attr.ib(default = None)
-    @success_comparator.validator
-    @failure_comparator.validator
-    def validate_comparator(self, attribute, value):
-        if value is not None:
-            assert isinstance(value, Comparator)
-
-    def __attrs_post_init__(self):
-        if self.reroll_spec is not None and self.drop_spec is not None:
-            raise ValueError('Reroll and drop specs are mutually exclusive')
-        if self.success_comparator is None and self.failure_comparator is not None:
-            raise ValueError('Cannot use a failure condition without a success condition')
-
-    def __str__(self) -> str:
-        return '{count}d{type}{reroll}{drop}{success}{fail}'.format(
-            count = self.dice_count if self.dice_count > 1 else '',
-            type = self.die_type,
-            reroll = self.reroll_spec or '',
-            drop = self.drop_spec or '',
-            success = self.success_comparator or '',
-            fail = ('f' + str(self.failure_comparator)) if self.failure_comparator else '',
-        )
-
-    def roll(self) -> DiceRolled:
-        '''Roll dice according to specifications. Returns a DiceRolled object.'''
-        all_rolls = []
-        if self.reroll_spec:
-            for i in range(self.dice_count):
-                all_rolls.extend(self.reroll_spec.roll_die(self.die_type))
-        else:
-            for i in range(self.dice_count):
-                all_rolls.append(roll_die(self.die_type))
-        if self.drop_spec:
-            (dice_results, dropped_results) = self.drop_spec.drop_rolls(all_rolls)
-        else:
-            (dice_results, dropped_results) = (all_rolls, [])
-        success_count: OptionalType[int]
-        if self.success_comparator is not None:
-            success_count = 0
-            for roll in dice_results:
-                if self.success_comparator.compare(roll):
-                    success_count += 1
-            if self.failure_comparator is not None:
-                for roll in dice_results:
-                    if self.failure_comparator.compare(roll):
-                        success_count -= 1
-        else:
-            success_count = None
-        return DiceRolled(
-            dice_results=dice_results,
-            dropped_results=dropped_results,
-            roll_desc=str(self),
-            success_count=success_count,
-        )
-
-def make_dice_roller(expr: Union[str,ParseResults]) -> DiceRoller:
-    if isinstance(expr, str):
-        expr = roll_spec.parseString(expr, True)['roll']
-    assert expr.getName() == 'roll'
-    expr = expr.asDict()
-
-    dtype = normalize_die_type(expr['die_type'])
-    dcount = normalize_dice_count(expr['dice_count'])
-    constructor_args: Dict[str, Any] = {
-        'die_type': dtype,
-        'dice_count': dcount,
-        'reroll_spec': None,
-        'drop_spec': None,
-        'success_comparator': None,
-        'failure_comparator': None,
-    }
-
-    rrdict = None
-    if 'reroll' in expr:
-        rrdict = expr['reroll']
-        constructor_args['reroll_spec'] = RerollSpec(**rrdict)
-
-    if 'drop' in expr:
-        ddict = expr['drop']
-        constructor_args['drop_spec'] = DropSpec(**ddict)
-
-    if 'count_successes' in expr:
-        csdict = expr['count_successes']
-        constructor_args['success_comparator'] = Comparator(**csdict['success_condition'])
-        if 'failure_condition' in csdict:
-            constructor_args['failure_comparator'] = Comparator(**csdict['failure_condition'])
-    return DiceRoller(**constructor_args)
-
-# examples = [
-#     '1+1',
-#     '1 + 1 + x',
-#     '3d8',
-#     '2e3 * 4d6 + 2',
-#     '2d20k',
-#     '3d20x2',
-#     '4d4rK3',
-#     '4d4R4',
-#     '4d4R>=3',
-#     '4d4r>=3',
-#     '4d4!1',
-#     '4d4!<3',
-#     '4d4!p',
-#     '2D20K+10',
-#     '2D20k+10',
-#     '10d6X4',
-#     '4d8r + 6',
-#     '20d6R≤2',
-#     '6d10!≥8+6',
-#     '10d4!p',
-#     '20d6≥6',
-#     '8d12≥10f≤2',
-#     # '4d20R<=2!>=19Xx21>=20f<=5*2+3',  # Pretty much every possible feature
-# ]
-
-# example_results = {}
-# for x in examples:
-#     try:
-#         example_results[x] = parse_roll(x)
-#     except ParseException as ex:
-#         example_results[x] = ex
-# example_results
-
-# rs = RerollSpec('!!p', '=', 6)
-# rs.roll_die(6)
-
-# ds = DropSpec('K', 2)
-# ds.drop_rolls([1,2,3,4,5])
-# ds = DropSpec('x', 2)
-# ds.drop_rolls([1,2,3,4,5])
-
-# parse_roll = lambda x: expr_parser.parseString(x)[0]
-# exprstring = 'x + 1 + (2 + (3 + 4))'
-# expr = parse_roll(exprstring)
-
-# r = parse_roll('x + 1 - 2 * y * 4d4 + 2d20K1>=20f<=5')[0]
-
-op_dict: Dict[str, Callable] = {
-    '+': operator.add,
-    '-': operator.sub,
-    '*': operator.mul,
-    '×': operator.mul,
-    '/': operator.truediv,
-    '÷': operator.truediv,
-    '**': operator.pow,
-    '^': operator.pow,
-}
-
-ExprType = Union[float, str, ParseResults]
-
-def normalize_expr(expr: ExprType) -> ParseResults:
-    if isinstance(expr, str):
-        return expr_parser.parseString(expr)['expr']
-    elif isinstance(expr, Number):
-        return expr
-    else:
-        assert isinstance(expr, ParseResults)
-        return expr['expr']
-
-def _eval_expr_internal(
-        expr: ExprType,
-        env: Dict[str, str] = {},
-        print_rolls: bool = True,
-        recursed_vars: Set[str] = set()) -> float:
-    if isinstance(expr, float) or isinstance(expr, int):
-        # Numeric literal
-        return expr
-    elif isinstance(expr, str):
-        # variable name
-        if expr in recursed_vars:
-            raise ValueError('Recursive variable definition detected for {!r}'.format(expr))
-        elif expr in env:
-            var_value = env[expr]
-            parsed = normalize_expr(var_value)
-            return _eval_expr_internal(parsed, env, print_rolls,
-                                       recursed_vars = recursed_vars.union([expr]))
-        else:
-            raise ValueError('Expression referenced undefined variable {!r}'.format(expr))
-    else:
-        assert isinstance(expr, ParseResults)
-        if 'operator' in expr:
-            # Compound expression
-            operands = expr[::2]
-            operators = expr[1::2]
-            assert len(operands) == len(operators) + 1
-            values = [ _eval_expr_internal(x, env, print_rolls, recursed_vars)
-                       for x in operands ]
-            result = values[0]
-            for (op, nextval) in zip(operators, values[1:]):
-                opfun = op_dict[op]
-                result = opfun(result, nextval)
-            return result
-        else:
-            # roll specification
-            roller = make_dice_roller(expr)
-            rolled = roller.roll()
-            if print_rolls:
-                print(rolled)
-            return int(rolled)
-
-def eval_expr(expr: ExprType,
-              env: Dict[str,str] = {},
-              print_rolls: bool = True) -> float:
-    expr = normalize_expr(expr)
-    return _eval_expr_internal(expr, env, print_rolls)
-
-def _expr_as_str_internal(expr: ExprType,
-                          env: Dict[str,str] = {},
-                          recursed_vars: Set[str] = set()) -> str:
-    if isinstance(expr, float) or isinstance(expr, int):
-        return '{:g}'.format(expr)
-    elif isinstance(expr, str):
-        # variable name
-        if expr in recursed_vars:
-            raise ValueError('Recursive variable definition detected for {!r}'.format(expr))
-        elif expr in env:
-            var_value = env[expr]
-            parsed = normalize_expr(var_value)
-            return _expr_as_str_internal(parsed, env, recursed_vars = recursed_vars.union([expr]))
-        # Not a variable name, just a string
-        else:
-            return expr
-    else:
-        assert isinstance(expr, ParseResults)
-        if 'operator' in expr:
-            # Compound expression
-            operands = expr[::2]
-            operators = expr[1::2]
-            assert len(operands) == len(operators) + 1
-            values = [ _expr_as_str_internal(x, env, recursed_vars)
-                       for x in operands ]
-            result = str(values[0])
-            for (op, nextval) in zip(operators, values[1:]):
-                result += ' {} {}'.format(op, nextval)
-            return '(' + result + ')'
-        else:
-            # roll specification
-            return str(make_dice_roller(expr))
-
-def expr_as_str(expr: ExprType, env: Dict[str,str]  = {}) -> str:
-    expr = normalize_expr(expr)
-    expr = _expr_as_str_internal(expr, env)
-    if expr.startswith('(') and expr.endswith(')'):
-        expr = expr[1:-1]
-    return expr
-
-def read_roll(handle: TextIO = sys.stdin) -> str:
-    if handle == sys.stdin:
-        return input("Enter roll> ")
-    else:
-        return handle.readline()[:-1]
-
-special_command_parser: ParserElement = (
-    oneOf('h help ?').setResultsName('help') |
-    oneOf('q quit exit').setResultsName('quit') |
-    oneOf('v vars').setResultsName('vars') |
-    (oneOf('d del delete').setResultsName('delete').leaveWhitespace() + Suppress(White()) + var_name)
+# Valid variable name parser (should disallow names like 'help', 'quit', or 'd4r')
+def Identifier(): return (
+        Not(ReservedWord),
+        RegExMatch(r'[A-Za-z_][A-Za-z0-9_]*')
 )
 
-def var_name_allowed(vname: str) -> bool:
-    '''Disallow variable names like 'help' and 'quit'.'''
-    parsers = [ special_command_parser, roll_spec ]
-    for parser in [ special_command_parser, roll_spec ]:
-        try:
-            parser.parseString(vname, True)
-            return False
-        except ParseException:
-            pass
-    # If the variable name didn't parse as anything else, it's valid
-    return True
-
-line_parser: ParserElement = (
-    special_command_parser ^
-    (assignment_parser | expr_parser)
+def MyNum(): return (
+        Not('0'),
+        RegExMatch('[0-9]+'),
 )
+
+# Roll expression parsing
+def PercentileFace(): return '%'
+def DieFace(): return [NonzeroDigits, PercentileFace, RegExMatch(r'F(\.[12])?')]
+def BasicRollExpr():
+    return (
+        Optional(NonzeroDigits),
+        RegExMatch('[dD]'),
+        DieFace,
+    )
+def DropSpec(): return 'K k X x -H -L'.split(' '), Optional(NonzeroDigits)
+def CompareOp(): return '<= < >= > ≤ ≥ ='.split(' ')
+def Comparison(): return CompareOp, Integer
+def RerollType(): return Combine(['r', 'R', ('!', Optional('!'), Optional('p'))])
+def RerollSpec():
+    return  (
+        RerollType,
+        Optional(
+            Optional(CompareOp),
+            Integer,
+        ),
+    )
+def CountSpec():
+    return (
+        Comparison,
+        Optional('f', Comparison),
+    )
+
+def RollExpr():
+    return (
+        BasicRollExpr,
+        Optional([DropSpec, RerollSpec]),
+        Optional(CountSpec),
+    )
+
+# Arithmetic expression parsing
+def PrimaryTerm(): return [RollExpr, Number, Identifier]
+def TermOrGroup(): return [PrimaryTerm, ParenExpr]
+def Exponent(): return ['**', '^'], OpWS, TermOrGroup
+def ExponentExpr(): return TermOrGroup, ZeroOrMore(OpWS, Exponent)
+def Mul(): return ['*', '×'], OpWS, ExponentExpr
+def Div(): return ['/', '÷'], OpWS, ExponentExpr
+def ProductExpr(): return ExponentExpr, ZeroOrMore(OpWS, [Mul, Div])
+def Add(): return '+', OpWS, ProductExpr
+def Sub(): return '-', OpWS, ProductExpr
+def SumExpr(): return ProductExpr, ZeroOrMore(OpWS, [Add, Sub])
+def ParenExpr(): return Optional(Sign), '(', OpWS, SumExpr, OpWS, ')'
+def Expression():
+    # Wrapped in a tuple to force a separate entry in the parse tree
+    return (SumExpr,)
+
+# For parsing vars/expressions without evaluating them. The Combine()
+# hides the child nodes from a visitor.
+def UnevaluatedExpression(): return Combine(Expression)
+def UnevaluatedVariable(): return Combine(Identifier)
+
+# Variable assignment
+def VarAssignment(): return (
+        UnevaluatedVariable,
+        OpWS, '=', OpWS,
+        UnevaluatedExpression
+)
+
+# Commands
+def DeleteCommand(): return (
+        Combine(['delete', 'del', 'd']),
+        Whitespace,
+        UnevaluatedVariable,
+)
+def HelpCommand(): return Combine(['help', 'h', '?'])
+def QuitCommand(): return Combine(['quit', 'exit', 'q'])
+def ListVarsCommand(): return Combine(['variables', 'vars', 'v'])
+def Command(): return [ ListVarsCommand, DeleteCommand, HelpCommand, QuitCommand, ]
+
+def InputParser(): return Optional([Command, VarAssignment, Expression, Whitespace])
+
+def FullParserPython(language_def, *args, **kwargs):
+    '''Like ParserPython, but auto-adds EOF to the end of the parser.'''
+    def TempFullParser(): return (language_def, EOF)
+    return ParserPython(TempFullParser, *args, **kwargs)
+
+expr_parser = FullParserPython(Expression, skipws = False, memoization = True)
+input_parser = FullParserPython(InputParser, skipws = False, memoization = True)
+
+def test_parse(rule, text):
+    if isinstance(text, str):
+        return FullParserPython(rule, skipws=False, memoization = True).parse(text)
+    else:
+        return [ test_parse(rule, x) for x in text ]
+
+test_parse(Number, '+6.0223e23')
+test_parse(RollExpr, [
+    '4d4',
+    '2d20K',
+    '8d6x1',
+    '8d4!p<=1',
+    '8d4r4',
+    '8d6r1>3f<3',
+])
+test_parse(Expression, [
+    'x+1',
+    '4d4+4',
+    '2*2',
+    '(2*2)',
+    '2d20K + d6 + (2 * 2 ^ 2)',
+])
+test_parse(VarAssignment, [
+    'x= 5',
+    'int = d20 + 7',
+])
+test_parse(InputParser, [
+    '4d4',
+    '2d20K',
+    '8d6x1',
+    '8d4!p<=1',
+    '8d4r4',
+    '8d6r1>3f<3',
+    'x+1',
+    '4d4+4',
+    '2*2',
+    '(2*2)',
+    '2d20K + d6 + (2 * 2 ^ 2)',
+    'x= 5',
+    'int = d20 + 7',
+    'del x',
+    'delete x',
+    'help',
+    'quit',
+    'v',
+])
+
+def eval_infix(terms: List[float],
+               operators: List[Callable[[float,float],float]],
+               associativity: str = 'l') -> float:
+    '''Evaluate an infix expression with N terms and N-1 operators.'''
+    assert associativity in ['l', 'r']
+    assert len(terms) == len(operators) + 1, 'Need one more term than operator'
+    if len(terms) == 1:
+        return terms[0]
+    elif associativity == 'l':
+        value = terms[0]
+        for op, term in zip(operators, terms[1:]):
+            value = op(value, term)
+        return value
+    elif associativity == 'r':
+        value = terms[-1]
+        for op, term in zip(reversed(operators), reversed(terms[:-1])):
+            value = op(term, value)
+        return value
+    else:
+        raise ValueError(f'Invalid associativity: {associativity!r}')
+
+class UndefinedVariableError(KeyError):
+    pass
+
+def print_vars(env: Dict[str,str]) -> None:
+    if len(env):
+        print('Currently defined variables:')
+        for k in sorted(env.keys()):
+            print('{} = {!r}'.format(k, env[k]))
+    else:
+        print('No variables are currently defined.')
 
 def print_interactive_help() -> None:
     print('\n' + '''
@@ -765,75 +289,593 @@ Special commands:
 
     '''.strip() + '\n', file=sys.stdout)
 
-def print_vars(env: Dict[str,str]) -> None:
-    if len(env):
-        print('Currently defined variables:')
-        for k in sorted(env.keys()):
-            print('{} = {!r}'.format(k, env[k]))
+DieFaceType = Union[int, str]
+def roll_die(face: DieFaceType = 6) -> int:
+    '''Roll a single die.
+
+Supports any valid integer number of sides as well as 'F', 'F.1', and
+'F.2' for a Face die, which can return -1, 0, or 1.
+
+    '''
+    if face in ('F', 'F.2'):
+        # Fate die = 1d3-2
+        return roll_die(3) - 2
+    elif face == 'F.1':
+        d6 = roll_die(6)
+        if d6 == 1:
+            return -1
+        elif d6 == 6:
+            return 1
+        else:
+            return 0
     else:
-        print('No variables are currently defined.')
+        face = int(face)
+        if face < 2:
+            raise ValueError(f"Can't roll a {face}-sided die")
+        return randint(1, face)
+
+def roll_die_with_rerolls(face: int, reroll_condition: Callable, reroll_limit = None) -> List[int]:
+    '''Roll a single die, and maybe reroll it several times.
+
+    After each roll, 'reroll_condition' is called on the result, and
+    if it returns True, the die is rolled again. All rolls are
+    collected in a list, and the list is returned as soon as the
+    condition returns False.
+
+    If reroll_limit is provided, it limits the maximum number of
+    rerolls. Note that the total number of rolls can be one more than
+    the reroll limit, since the first roll is not considered a reroll.
+
+    '''
+    all_rolls = [roll_die(face)]
+    while reroll_condition(all_rolls[-1]):
+        if reroll_limit is not None and len(all_rolls) > reroll_limit:
+            break
+        all_rolls.append(roll_die(face))
+    return all_rolls
+
+class DieRolled(int):
+    '''Subclass of int that allows an alternate string representation.
+
+    This is meant for recording the result of rolling a die. The
+    formatter argument should include '{}' anywhere that the integer
+    value should be substituted into the string representation.
+    (However, it can also override the string representation entirely
+    by not including '{}'.) The string representation has no effect on
+    the numeric value. It can be used to indicate a die roll that has
+    been re-rolled or exploded, or to indicate a critical hit/miss.
+
+    '''
+    formatter: str
+
+    def __new__(cls: type, value: int, formatter: str = '{}') -> 'DieRolled':
+        # https://github.com/python/typeshed/issues/2686
+        newval = super(DieRolled, cls).__new__(cls, value) # type: ignore
+        newval.formatter = formatter
+        return newval
+
+    def __str__(self) -> str:
+        return self.formatter.format(super().__str__())
+
+    def __repr__(self) -> str:
+        if self.formatter != '{}':
+            return f'DieRolled(value={int(self)!r}, formatter={self.formatter!r})'
+        else:
+            return f'DieRolled({int(self)!r})'
+
+def format_dice_roll_list(rolls: List[int], always_list: bool = False) -> str:
+    if len(rolls) == 0:
+        raise ValueError('Need at least one die rolled')
+    elif len(rolls) == 1 and not always_list:
+        return color(str(rolls[0]), DETAIL_COLOR)
+    else:
+        return '[' + color(" ".join(map(str, rolls)), DETAIL_COLOR) + ']'
+
+def int_or_none(x: OptionalType[Any]) -> OptionalType[int]:
+    if x is None:
+        return None
+    else:
+        return int(x)
+
+def str_or_none(x: OptionalType[Any]) -> OptionalType[str]:
+    if x is None:
+        return None
+    else:
+        return str(x)
+
+@attr.s
+class DiceRolled(object):
+    '''Class representing the result of rolling one or more similar dice.'''
+    dice_results: List[int] = attr.ib()
+    @dice_results.validator
+    def validate_dice_results(self, attribute, value):
+        if len(value) == 0:
+            raise ValueError('Need at least one non-dropped roll')
+    dropped_results: OptionalType[List[int]] = attr.ib(default = None)
+    roll_text: OptionalType[str] = attr.ib(
+        default = None, converter = str_or_none)
+    success_count: OptionalType[int] = attr.ib(
+        default = None, converter = int_or_none)
+
+    def total(self) -> int:
+        if self.success_count is not None:
+            return int(self.success_count)
+        else:
+            return sum(self.dice_results)
+
+    def __str__(self) -> str:
+        results = format_dice_roll_list(self.dice_results)
+        if self.roll_text:
+            prefix = '{text} rolled'.format(text=color(self.roll_text, EXPR_COLOR))
+        else:
+            prefix = 'Rolled'
+        if self.dropped_results:
+            drop = ' (dropped {dropped})'.format(dropped = format_dice_roll_list(self.dropped_results))
+        else:
+            drop = ''
+        if self.success_count is not None:
+            tot = ', Total successes: ' + color(str(self.total()), DETAIL_COLOR)
+        elif len(self.dice_results) > 1:
+            tot = ', Total: ' + color(str(self.total()), DETAIL_COLOR)
+        else:
+            tot = ''
+        return f'{prefix}: {results}{drop}{tot}'
+
+    def __int__(self) -> int:
+        return self.total()
+
+    def __float__(self) -> float:
+        return float(self.total())
+
+cmp_dict = {
+    '<=': operator.le,
+    '<': operator.lt,
+    '>=': operator.ge,
+    '>': operator.gt,
+    '≤': operator.le,
+    '≥': operator.ge,
+    '=': operator.eq,
+}
+
+@attr.s
+class Comparator(object):
+    cmp_dict = {
+        '<=': operator.le,
+        '<': operator.lt,
+        '>=': operator.ge,
+        '>': operator.gt,
+        '≤': operator.le,
+        '≥': operator.ge,
+        '=': operator.eq,
+    }
+    operator: str = attr.ib(converter = str)
+    @operator.validator
+    def validate_operator(self, attribute, value):
+        if not value in self.cmp_dict:
+            raise ValueError(f'Unknown comparison operator: {value!r}')
+    value: int = attr.ib(converter = int)
+
+    def __str__(self) -> str:
+        return '{op}{val}'.format(op=self.operator, val=self.value)
+
+    def compare(self, x: float) -> bool:
+        '''Return True if x satisfies the comparator.
+
+        In other words, x is placed on the left-hand side of the
+        comparison, the Comparator's value is placed on the right hand
+        side, and the truth value of the resulting test is returned.
+
+        '''
+        return self.cmp_dict[self.operator](x, self.value)
+
+    def __call__(self, x: float) -> bool:
+        '''Calls Comparator.compare() on x.
+
+        This allows the Comparator to be used as a callable.'''
+        return self.compare(x)
+
+def roll_dice(roll_desc: Dict) -> DiceRolled:
+    '''Roll dice based on a roll description.
+
+    See InputHandler.visit_RollExpr(), which generates roll
+    descriptions. This function assumes the roll description is
+    already validated.
+
+    Returns a tuple of two lists. The first list is the kept rolls,
+    and the second list is the dropped rolls.
+
+    '''
+    die_face: DieFaceType = roll_desc['die_face']
+    dice_count: int = roll_desc['dice_count']
+    kept_rolls: List[int] = []
+    dropped_rolls: OptionalType[List[int]] = None
+    success_count: Optional[int] = None
+    if 'reroll_type' in roll_desc:
+        die_face = int(die_face) # No fate dice
+        reroll_type: str = roll_desc['reroll_type']
+        reroll_limit = 1 if reroll_type == 'r' else None
+        reroll_desc: Dict = roll_desc['reroll_desc']
+        reroll_comparator = Comparator(
+            operator = reroll_desc['comparator'],
+            value = reroll_desc['target'],
+        )
+        for i in range(dice_count):
+            current_rolls = roll_die_with_rerolls(die_face, reroll_comparator, reroll_limit)
+            if len(current_rolls) == 1:
+                # If no rerolls happened, then just add the single
+                # roll as is.
+                kept_rolls.append(current_rolls[0])
+            elif reroll_type in ['r', 'R']:
+                # Keep only the last roll, and mark it as rerolled
+                kept_rolls.append(DieRolled(current_rolls[-1], '{}' + reroll_type))
+            elif reroll_type in ['!', '!!', '!p', '!!p']:
+                if reroll_type.endswith('p'):
+                    # For penetration, subtract 1 from all rolls
+                    # except the first
+                    for i in range(1, len(current_rolls)):
+                        current_rolls[i] -= 1
+                if reroll_type.startswith('!!'):
+                    # For compounding, return the sum, marked as a
+                    # compounded roll.
+                    kept_rolls.append(DieRolled(sum(current_rolls),
+                                               '{}' + reroll_type))
+                else:
+                    # For exploding, add each individual roll to the
+                    # list. Mark each roll except the last as
+                    # rerolled.
+                    for i in range(0, len(current_rolls) - 1):
+                        current_rolls[i] = DieRolled(current_rolls[i], '{}' + reroll_type)
+                    kept_rolls.extend(current_rolls)
+            else:
+                raise ValueError(f'Unknown reroll type: {reroll_type}')
+    else:
+        # Roll the requested number of dice
+        all_rolls = [ roll_die(die_face) for i in range(dice_count) ]
+        if 'drop_type' in roll_desc:
+            keep_count: int = roll_desc['keep_count']
+            keep_high: bool = roll_desc['keep_high']
+            # We just need to keep the highest/lowest N rolls. The
+            # extra complexity here is just to preserve the original
+            # order of those rolls.
+            rolls_to_keep = sorted(all_rolls, reverse = keep_high)[:keep_count]
+            kept_rolls = []
+            for roll in rolls_to_keep:
+                kept_rolls.append(all_rolls.pop(all_rolls.index(roll)))
+            # Remaining rolls are dropped
+            dropped_rolls = all_rolls
+        else:
+            kept_rolls = all_rolls
+    # Now we have a list of kept rolls
+    if 'count_success' in roll_desc:
+        die_face = int(die_face) # No fate dice
+        success_desc = roll_desc['count_success']
+        success_test = Comparator(
+            operator = success_desc['comparator'],
+            value = success_desc['target'],
+        )
+        success_count = sum(success_test(x) for x in kept_rolls)
+        if 'count_failure' in roll_desc:
+            failure_desc = roll_desc['count_failure']
+            failure_test = Comparator(
+                operator = failure_desc['comparator'],
+                value = failure_desc['target'],
+            )
+            # Make sure the two conditions don't overlap
+            for i in range(1, die_face + 1):
+                if success_test(i) and failure_test(i):
+                    raise ValueError(f"Can't use overlapping success and failure conditions: {str(success_test)!r}, {str(failure_test)!r}")
+            success_count -= sum(failure_test(x) for x in kept_rolls)
+    temp_args = dict(
+        dice_results = kept_rolls,
+        dropped_results = dropped_rolls,
+        success_count = success_count,
+        roll_text = roll_desc['roll_text'],
+    )
+    return DiceRolled(
+        dice_results = kept_rolls,
+        dropped_results = dropped_rolls,
+        success_count = success_count,
+        roll_text = roll_desc['roll_text'],
+    )
+
+# examples = [
+#     '1+1',
+#     '1 + 1 + x',
+#     '3d8',
+#     '2e3 * 4d6 + 2',
+#     '2d20k',
+#     '3d20x2',
+#     '4d4rK3',
+#     '4d4R4',
+#     '4d4R>=3',
+#     '4d4r>=3',
+#     '4d4!1',
+#     '4d4!<3',
+#     '4d4!p',
+#     '2D20K+10',
+#     '2D20k+10',
+#     '10d6X4',
+#     '4d8r + 6',
+#     '20d6R≤2',
+#     '6d10!≥8+6',
+#     '10d4!p',
+#     '20d6≥6',
+#     '8d12≥10f≤2',
+# ]
+
+# example_results = {}
+# for x in examples:
+#     try:
+#         example_results[x] = parse_roll(x)
+#     except ParseException as ex:
+#         example_results[x] = ex
+# example_results
+class QuitRequested(BaseException):
+    pass
+
+class InputHandler(PTNodeVisitor):
+    def __init__(self, **kwargs):
+        self.env: Dict[str, str] = kwargs.pop('env', {})
+        self.recursed_vars: Set[str] = kwargs.pop('recursed_vars', set())
+        self.expr_parser = kwargs.pop('expr_parser', expr_parser)
+        self.print_results = kwargs.pop('print_results', True)
+        self.print_rolls = kwargs.pop('print_rolls', True)
+        super().__init__(**kwargs)
+
+    def visit_Whitespace(self, node, children):
+        '''Remove whitespace nodes'''
+        return None
+    def visit_Number(self, node, children):
+        '''Return the numeric value.
+
+        Uses int if possible, otherwise float.'''
+        try:
+            return int(node.value)
+        except ValueError:
+            return float(node.value)
+    def visit_NonzeroDigits(self, node, children):
+        return int(node.flat_str())
+    def visit_Integer(self, node, children):
+        return int(node.flat_str())
+    def visit_PercentileFace(self, node, children):
+        return 100
+    def visit_BasicRollExpr(self, node, children):
+        die_face = children[-1]
+        if isinstance(die_face, int) and die_face < 2:
+            raise ValueError(f"Invalid roll: Can't roll a {die_face}-sided die")
+        return {
+            'dice_count': children[0] if len(children) == 3 else 1,
+            'die_face': die_face,
+        }
+    def visit_DropSpec(self, node, children):
+        return {
+            'drop_type': children[0],
+            'drop_or_keep_count': children[1] if len(children) > 1 else 1,
+        }
+    def visit_RerollSpec(self, node, children):
+        if len(children) == 1:
+            return {
+                'reroll_type': children[0],
+                # The default reroll condition depends on other parts
+                # of the roll expression, so it will be "filled in"
+                # later.
+            }
+        elif len(children) == 2:
+            return {
+                'reroll_type': children[0],
+                'reroll_desc': {
+                    'comparator': '=',
+                    'target': children[1],
+                },
+            }
+        elif len(children) == 3:
+            return {
+                'reroll_type': children[0],
+                'reroll_desc': {
+                    'comparator': children[1],
+                    'target': children[2],
+                },
+            }
+        else:
+            raise ValueError("Invalid reroll specification")
+    def visit_Comparison(self, node, children):
+        return {
+            'comparator': children[0],
+            'target': children[1],
+        }
+    def visit_CountSpec(self, node, children):
+        result = { 'count_success': children[0], }
+        if len(children) > 1:
+            result['count_failure'] = children[1]
+        return result
+    def visit_RollExpr(self, node, children):
+        # Collect all child dicts into one
+        roll_desc = {
+            'roll_text': node.flat_str(),
+        }
+        for child in children:
+            roll_desc.update(child)
+        logger.debug(f'Initial roll description: {roll_desc!r}')
+        # Perform some validation that can only be done once the
+        # entire roll description is collected.
+        if not isinstance(roll_desc['die_face'], int):
+            if 'reroll_type' in roll_desc:
+                raise ValueError('Can only reroll/explode numeric dice, not Fate dice')
+            if 'count_success' in roll_desc:
+                raise ValueError('Can only count successes on numeric dice, not Fate dice')
+        # Fill in implicit reroll type
+        if 'reroll_type' in roll_desc and not 'reroll_desc' in roll_desc:
+            rrtype = roll_desc['reroll_type']
+            if rrtype in ['r', 'R']:
+                roll_desc['reroll_desc'] = {
+                    'comparator': '=',
+                    'target': 1,
+                }
+            else:
+                roll_desc['reroll_desc'] = {
+                    'comparator': '=',
+                    'target': roll_desc['die_face'],
+                }
+        # Validate drop spec and determine exactly how many dice to
+        # drop/keep
+        if 'drop_type' in roll_desc:
+            dtype = roll_desc['drop_type']
+            keeping = dtype in ['K', 'k']
+            if keeping:
+                roll_desc['keep_count'] = roll_desc['drop_or_keep_count']
+            else:
+                roll_desc['keep_count'] = roll_desc['dice_count'] - roll_desc['drop_or_keep_count']
+            if roll_desc['keep_count'] < 1:
+                drop_count = roll_desc['dice_count'] - roll_desc['keep_count']
+                raise ValueError(f"Can't drop {drop_count} dice out of {roll_desc['dice_count']}")
+            if roll_desc['keep_count'] >= roll_desc['dice_count']:
+                raise ValueError(f"Can't keep {roll_desc['keep_count']} dice out of {roll_desc['dice_count']}")
+            # Keeping high rolls is the same as dropping low rolls
+            roll_desc['keep_high'] = dtype in ['K', 'x', '-L']
+        # Validate count spec
+        elif 'count_failure' in roll_desc and not 'count_success' in roll_desc:
+            # The parser shouldn't allow this, but just in case
+            raise ValueError("Can't have a failure condition without a success condition")
+        logger.debug(f'Final roll description: {roll_desc!r}')
+        result = roll_dice(roll_desc)
+        if self.print_rolls:
+            print(str(result))
+        return int(result)
+    def visit_Identifier(self, node, children):
+        '''Interpolate variable.'''
+        var_name = node.value
+        if var_name in self.recursed_vars:
+            raise ValueError(f'Recursive variable definition detected for {var_name!r}')
+        try:
+            var_expression = self.env[var_name]
+        except KeyError as ex:
+            raise UndefinedVariableError(*ex.args)
+        recursive_evaluator = copy(self)
+        recursive_evaluator.recursed_vars = self.recursed_vars.union([var_name])
+        # Don't print the results of evaluating variables
+        recursive_evaluator.print_results = False
+        if self.debug:
+            self.dprint(f'Evaluating variable {var_name} with expression {var_expression!r}')
+        return self.expr_parser.parse(var_expression).visit(recursive_evaluator)
+    def visit_Expression(self, node, children):
+        if self.print_results:
+            print('Result: {result} (rolled {expr})'.format(
+                expr=color(node.flat_str(), EXPR_COLOR),
+                result=color(f'{children[0]:g}', RESULT_COLOR),
+            ))
+        return children[0]
+    # Each of these returns a tuple of (operator, value)
+    def visit_Add(self, node, children):
+        return (operator.add, children[-1])
+    def visit_Sub(self, node, children):
+        return (operator.sub, children[-1])
+    def visit_Mul(self, node, children):
+        return (operator.mul, children[-1])
+    def visit_Div(self, node, children):
+        return (operator.truediv, children[-1])
+    def visit_Exponent(self, node, children):
+        return (operator.pow, children[-1])
+    # Each of these receives a first child that is a number and the
+    # remaining children are tuples of (operator, number)
+    def visit_SumExpr(self, node, children):
+        values = [children[0]]
+        ops = []
+        for (op, val) in children[1:]:
+            values.append(val)
+            ops.append(op)
+        if self.debug:
+            self.dprint(f'Sum: values: {values!r}; ops: {ops!r}')
+        return eval_infix(values, ops, 'l')
+    def visit_ProductExpr(self, node, children):
+        values = [children[0]]
+        ops = []
+        for (op, val) in children[1:]:
+            values.append(val)
+            ops.append(op)
+        if self.debug:
+            self.dprint(f'Product: values: {values!r}; ops: {ops!r}')
+        return eval_infix(values, ops, 'l')
+    def visit_ExponentExpr(self, node, children):
+        values = [children[0]]
+        ops = []
+        for (op, val) in children[1:]:
+            values.append(val)
+            ops.append(op)
+        if self.debug:
+            self.dprint(f'Exponent: values: {values!r}; ops: {ops!r}')
+        return eval_infix(values, ops, 'l')
+    def visit_Sign(self, node, children):
+        if node.value == '-':
+            return -1
+        else:
+            return 1
+    def visit_ParenExpr(self, node, children):
+        assert len(children) > 0
+        # Multiply the sign (if present) and the value inside the
+        # parens
+        return functools.reduce(operator.mul, children)
+    def visit_VarAssignment(self, node, children):
+        logger.debug(f'Doing variable assignment: {node.flat_str()}')
+        var_name, var_value = children
+        print('Saving "{var}" as "{expr}"'.format(
+            var=color(var_name, RESULT_COLOR),
+            expr=color(var_value, EXPR_COLOR),
+        ))
+        self.env[var_name] = var_value
+    def visit_ListVarsCommand(self, node, children):
+        print_vars(self.env)
+    def visit_DeleteCommand(self, node, children):
+        var_name = children[-1]
+        print('Deleting saved value for "{var}".'.format(
+            var=color(var_name, RESULT_COLOR)))
+        try:
+            self.env.pop(var_name)
+        except KeyError as ex:
+            raise UndefinedVariableError(*ex.args)
+    def visit_HelpCommand(self, node, children):
+        print_interactive_help()
+    def visit_QuitCommand(self, node, children):
+        raise QuitRequested()
+
+# def handle_input(expr: str, **kwargs) -> float:
+#     return input_parser.parse(expr).visit(InputHandler(**kwargs))
+
+# handle_input('help')
+# handle_input('2+2 * 2 ** 2')
+# env = {}
+# handle_input('y = 2 + 2', env = env)
+# handle_input('x = y + 2', env = env)
+# handle_input('2 + x', env = env)
+# handle_input('del x', env = env)
+# handle_input('vars', env = env)
+# handle_input('2 + x', env = env)
+# handle_input('d4 = 5', env = env)
+
+def read_input(handle: TextIO = sys.stdin) -> str:
+    if handle == sys.stdin:
+        return input("Enter roll> ")
+    else:
+        return handle.readline()[:-1]
 
 if __name__ == '__main__':
     expr_string = " ".join(sys.argv[1:])
     if re.search("\\S", expr_string):
         try:
-            # Note: using expr_parser instead of line_parser, because
-            # on the command line only roll expressions are valid.
-            expr = expr_parser.parseString(expr_string, True)
-            result = eval_expr(expr)
-            print('Result: {result} (rolled {expr})'.format(
-                expr=color(expr_as_str(expr), EXPR_COLOR),
-                result=color("{:g}".format(result), RESULT_COLOR),
-            ))
+            expr_parser.parse(expr_string).visit(InputHandler())
         except Exception as exc:
             logger.error("Error while rolling: %s", repr(exc))
             raise exc
             sys.exit(1)
     else:
         env: Dict[str, str] = {}
+        handler = InputHandler(env = env)
         while True:
             try:
-                expr_string = read_roll()
-                if not re.search("\\S", expr_string):
-                    continue
-                parsed = line_parser.parseString(expr_string, True)
-                if 'help' in parsed:
-                    print_interactive_help()
-                elif 'quit' in parsed:
-                    logger.info('Quitting.')
-                    break
-                elif 'vars' in parsed:
-                    print_vars(env)
-                elif 'delete' in parsed:
-                    vname = parsed['varname']
-                    if vname in env:
-                        print('Deleting saved value for "{var}".'.format(var=color(vname, RESULT_COLOR)))
-                        del env[vname]
-                    else:
-                        logger.error('Variable "{var}" is not defined.'.format(var=color(vname, RESULT_COLOR)))
-                elif re.search("\\S", expr_string):
-                    if 'assignment' in parsed:
-                        # We have an assignment operation
-                        vname = parsed['varname']
-                        if var_name_allowed(vname):
-                            env[vname] = expr_as_str(parsed['expr'])
-                            print('Saving "{var}" as "{expr}"'.format(
-                                var=color(vname, RESULT_COLOR),
-                                expr=color(env[vname], EXPR_COLOR),
-                            ))
-                        else:
-                            logger.error('You cannot use {!r} as a variable name.'.format(vname))
-                    else:
-                        # Just an expression to evaluate
-                        result = eval_expr(parsed, env)
-                        print('Result: {result} (rolled {expr})'.format(
-                            expr=color(expr_as_str(parsed, env), EXPR_COLOR),
-                            result=color("{:g}".format(result), RESULT_COLOR),
-                        ))
-                print('')
+                input_string = read_input()
+                input_parser.parse(input_string).visit(handler)
             except KeyboardInterrupt:
                 print('')
-            except EOFError:
+            except (EOFError, QuitRequested):
                 print('')
                 logger.info('Quitting.')
                 break
