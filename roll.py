@@ -167,9 +167,9 @@ def DeleteCommand(): return (
         Whitespace,
         UnevaluatedVariable,
 )
-def HelpCommand(): return Combine(['help', 'h', '?'])
-def QuitCommand(): return Combine(['quit', 'exit', 'q'])
-def ListVarsCommand(): return Combine(['variables', 'vars', 'v'])
+def HelpCommand(): return Combine(['help', 'h', '?'], Not(Identifier))
+def QuitCommand(): return Combine(['quit', 'exit', 'q'], Not(Identifier))
+def ListVarsCommand(): return Combine(['variables', 'vars', 'v'], Not(Identifier))
 def Command(): return [ ListVarsCommand, DeleteCommand, HelpCommand, QuitCommand, ]
 
 def InputParser(): return Optional([Command, VarAssignment, Expression, Whitespace])
