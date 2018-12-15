@@ -539,12 +539,36 @@ def roll_dice(roll_desc: Dict) -> DiceRolled:
         roll_text = roll_desc['roll_text'],
     )
 
+class ExpressionStringifier(PTNodeVisitor):
+    def __init__(self, **kwargs):
+        self.env: Dict[str, str] = kwargs.pop('env', {})
+        self.recursed_vars: Set[str] = kwargs.pop('recursed_vars', set())
+        self.expr_parser = kwargs.pop('expr_parser', expr_parser)
+        super().__init__(**kwargs)
+    def visit__default__(self, node, children):
+        if children:
+            return ''.join(children)
+        else:
+            return node.value
+    def visit_Identifier(self, node, children):
+        '''Interpolate variable.'''
+        var_name = node.value
+        if var_name in self.recursed_vars:
+            raise ValueError(f'Recursive variable definition detected for {var_name!r}')
+        try:
+            var_expression = self.env[var_name]
+        except KeyError as ex:
+            raise UndefinedVariableError(*ex.args)
+        recursive_visitor = copy(self)
+        recursive_visitor.recursed_vars = self.recursed_vars.union([var_name])
+        return self.expr_parser.parse(var_expression).visit(recursive_visitor)
 
 class QuitRequested(BaseException):
     pass
 
 class InputHandler(PTNodeVisitor):
     def __init__(self, **kwargs):
+        self.expr_stringifier = ExpressionStringifier(**kwargs)
         self.env: Dict[str, str] = kwargs.pop('env', {})
         self.recursed_vars: Set[str] = kwargs.pop('recursed_vars', set())
         self.expr_parser = kwargs.pop('expr_parser', expr_parser)
@@ -680,17 +704,18 @@ class InputHandler(PTNodeVisitor):
             var_expression = self.env[var_name]
         except KeyError as ex:
             raise UndefinedVariableError(*ex.args)
-        recursive_evaluator = copy(self)
-        recursive_evaluator.recursed_vars = self.recursed_vars.union([var_name])
+        recursive_visitor = copy(self)
+        recursive_visitor.recursed_vars = self.recursed_vars.union([var_name])
         # Don't print the results of evaluating variables
-        recursive_evaluator.print_results = False
+        recursive_visitor.print_results = False
         if self.debug:
             self.dprint(f'Evaluating variable {var_name} with expression {var_expression!r}')
-        return self.expr_parser.parse(var_expression).visit(recursive_evaluator)
+        return self.expr_parser.parse(var_expression).visit(recursive_visitor)
     def visit_Expression(self, node, children):
         if self.print_results:
+            expr_full_text = node.visit(self.expr_stringifier)
             print('Result: {result} (rolled {expr})'.format(
-                expr=color(node.flat_str(), EXPR_COLOR),
+                expr=color(expr_full_text, EXPR_COLOR),
                 result=color(f'{children[0]:g}', RESULT_COLOR),
             ))
         return children[0]
