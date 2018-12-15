@@ -174,13 +174,17 @@ def Command(): return [ ListVarsCommand, DeleteCommand, HelpCommand, QuitCommand
 
 def InputParser(): return Optional([Command, VarAssignment, Expression, Whitespace])
 
+# Allow whitespace padding at start or end of inputs
+def WSPaddedExpression(): return OpWS, Expression, OpWS
+def WSPaddedInputParser(): return OpWS, InputParser, OpWS
+
 def FullParserPython(language_def, *args, **kwargs):
     '''Like ParserPython, but auto-adds EOF to the end of the parser.'''
     def TempFullParser(): return (language_def, EOF)
     return ParserPython(TempFullParser, *args, **kwargs)
 
-expr_parser = FullParserPython(Expression, skipws = False, memoization = True)
-input_parser = FullParserPython(InputParser, skipws = False, memoization = True)
+expr_parser = FullParserPython(WSPaddedExpression, skipws = False, memoization = True)
+input_parser = FullParserPython(WSPaddedInputParser, skipws = False, memoization = True)
 
 def test_parse(rule, text):
     if isinstance(text, str):
