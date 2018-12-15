@@ -124,10 +124,3 @@ up with the total. This also lets you figure out whether you rolled a
 natural 20 or natural 1 on the die for critical hits and misses, and
 if your damage roll involves multiple different kinds of damage, it
 lets you figure out how much of each damage type was dealt.
-
-## Known Issues
-
-* There is no sanity checking for dice roll effects that will never
-  take effect, such as exploding a d6 on 7 (i.e. `d6!=7)
-* Error messages are pretty much just reported as is, with no attempt
-  to explain or contextualize them.

@@ -456,6 +456,8 @@ def roll_dice(roll_desc: Dict) -> DiceRolled:
         reroll_type: str = roll_desc['reroll_type']
         reroll_limit = 1 if reroll_type == 'r' else None
         reroll_desc: Dict = roll_desc['reroll_desc']
+        # TODO: sanity check the reroll comparator. Make sure it
+        # doesn't pass all values or fail all values.
         reroll_comparator = Comparator(
             operator = reroll_desc['comparator'],
             value = reroll_desc['target'],
@@ -514,6 +516,9 @@ def roll_dice(roll_desc: Dict) -> DiceRolled:
             operator = success_desc['comparator'],
             value = success_desc['target'],
         )
+        # Sanity check: make sure the success test can be met
+        if not any(map(success_test, range(1, die_face +1))):
+            raise ValueError(f"Test {str(success_test)!r} can never succeed for d{die_face}")
         success_count = sum(success_test(x) for x in kept_rolls)
         if 'count_failure' in roll_desc:
             failure_desc = roll_desc['count_failure']
@@ -521,7 +526,10 @@ def roll_dice(roll_desc: Dict) -> DiceRolled:
                 operator = failure_desc['comparator'],
                 value = failure_desc['target'],
             )
-            # Make sure the two conditions don't overlap
+            # Sanity check: make sure the failure test can be met
+            if not any(map(failure_test, range(1, die_face +1))):
+                raise ValueError(f"Test {str(failure_test)!r} can never succeed for d{die_face}")
+            # Sanity check: make sure the two conditions don't overlap
             for i in range(1, die_face + 1):
                 if success_test(i) and failure_test(i):
                     raise ValueError(f"Can't use overlapping success and failure conditions: {str(success_test)!r}, {str(failure_test)!r}")
