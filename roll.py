@@ -221,7 +221,9 @@ def print_vars(env: Dict[str,str]) -> None:
     if len(env):
         print('Currently defined variables:')
         for k in sorted(env.keys()):
-            print('{} = {!r}'.format(k, env[k]))
+            print('{var} = {value}'.format(
+                var = color(k, RESULT_COLOR),
+                value = color(repr(env[k]), EXPR_COLOR)))
     else:
         print('No variables are currently defined.')
 
