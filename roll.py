@@ -4,7 +4,6 @@ import attr
 import logging
 import re
 import sys
-import readline
 import operator
 import traceback
 from numbers import Number
@@ -39,6 +38,12 @@ logger.handlers = []
 logger.addHandler(logging.StreamHandler())
 for handler in logger.handlers:
     handler.setFormatter(logFormatter)
+
+try:
+    # If imported, input() automatically uses it
+    import readline
+except ImportError:
+    logger.warning("Could not import readline: Advanced line editing unavailable")
 
 sysrand = SystemRandom()
 randint = sysrand.randint
