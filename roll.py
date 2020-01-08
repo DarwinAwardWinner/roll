@@ -6,6 +6,7 @@ import re
 import sys
 import operator
 import traceback
+import functools
 from numbers import Number
 from random import SystemRandom
 from copy import copy
