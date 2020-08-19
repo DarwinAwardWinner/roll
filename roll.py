@@ -114,7 +114,7 @@ def BasicRollExpr():
         RegExMatch('[dD]'),
         DieFace,
     )
-def DropSpec(): return 'K k X x -H -L'.split(' '), Optional(NonzeroDigits)
+def DropSpec(): return 'kh kl K k X x -H -L'.split(' '), Optional(NonzeroDigits)
 def CompareOp(): return '<= < >= > ≤ ≥ ='.split(' ')
 def Comparison(): return CompareOp, Integer
 def RerollType(): return Combine(['r', 'R', ('!', Optional('!'), Optional('p'))])
@@ -712,7 +712,7 @@ class InputHandler(PTNodeVisitor):
         # drop/keep
         if 'drop_type' in roll_desc:
             dtype = roll_desc['drop_type']
-            keeping = dtype in ['K', 'k']
+            keeping = dtype in ['K', 'k', 'kl', 'kh']
             if keeping:
                 roll_desc['keep_count'] = roll_desc['drop_or_keep_count']
             else:
@@ -723,7 +723,7 @@ class InputHandler(PTNodeVisitor):
             if roll_desc['keep_count'] >= roll_desc['dice_count']:
                 raise ValueError(f"Can't keep {roll_desc['keep_count']} dice out of {roll_desc['dice_count']}")
             # Keeping high rolls is the same as dropping low rolls
-            roll_desc['keep_high'] = dtype in ['K', 'x', '-L']
+            roll_desc['keep_high'] = dtype in ['K', 'kh', 'x', '-L']
         # Validate count spec
         elif 'count_failure' in roll_desc and not 'count_success' in roll_desc:
             # The parser shouldn't allow this, but just in case
