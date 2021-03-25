@@ -447,7 +447,7 @@ class Comparator(object):
         This allows the Comparator to be used as a callable.'''
         return self.compare(x)
 
-def validate_comparators(face: DieFaceType, *comparators):
+def validate_comparators(face: DieFaceType, *comparators: Comparator):
     '''Validate one or more comparators for a die face type.
 
     This will test every possible die value, making sure that each
@@ -461,7 +461,6 @@ def validate_comparators(face: DieFaceType, *comparators):
         values = range(-1, 2)
     else:
         values = range(1, face+1)
-    comparators = list(comparators)
     # Validate individual comparators
     for comp in comparators:
         results = [ comp(val) for val in values ]
