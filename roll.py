@@ -18,10 +18,10 @@ from typing import Optional as OptionalType
 try:
     import colorama
     colorama.init()
-    from colors import color
+    from termcolor import colored
 except ImportError:
     # Fall back to no color
-    def color(s: str, *args, **kwargs):
+    def colored(s: str, *args, **kwargs):
         '''Fake color function that does nothing.
 
         Used when the colors module cannot be imported.'''
@@ -227,8 +227,8 @@ def print_vars(env: Dict[str,str]) -> None:
         print('Currently defined variables:')
         for k in sorted(env.keys()):
             print('{var} = {value}'.format(
-                var = color(k, RESULT_COLOR),
-                value = color(repr(env[k]), EXPR_COLOR)))
+                var = colored(k, RESULT_COLOR),
+                value = colored(repr(env[k]), EXPR_COLOR)))
     else:
         print('No variables are currently defined.')
 
@@ -339,9 +339,9 @@ def format_dice_roll_list(rolls: List[int], always_list: bool = False) -> str:
     if len(rolls) == 0:
         raise ValueError('Need at least one die rolled')
     elif len(rolls) == 1 and not always_list:
-        return color(str(rolls[0]), DETAIL_COLOR)
+        return colored(str(rolls[0]), DETAIL_COLOR)
     else:
-        return '[' + color(" ".join(map(str, rolls)), DETAIL_COLOR) + ']'
+        return '[' + colored(" ".join(map(str, rolls)), DETAIL_COLOR) + ']'
 
 def int_or_none(x: OptionalType[Any]) -> OptionalType[int]:
     if x is None:
@@ -378,7 +378,7 @@ class DiceRolled(object):
     def __str__(self) -> str:
         results = format_dice_roll_list(self.dice_results)
         if self.roll_text:
-            prefix = '{text} rolled'.format(text=color(self.roll_text, EXPR_COLOR))
+            prefix = '{text} rolled'.format(text=colored(self.roll_text, EXPR_COLOR))
         else:
             prefix = 'Rolled'
         if self.dropped_results:
@@ -386,9 +386,9 @@ class DiceRolled(object):
         else:
             drop = ''
         if self.success_count is not None:
-            tot = ', Total successes: ' + color(str(self.total()), DETAIL_COLOR)
+            tot = ', Total successes: ' + colored(str(self.total()), DETAIL_COLOR)
         elif len(self.dice_results) > 1:
-            tot = ', Total: ' + color(str(self.total()), DETAIL_COLOR)
+            tot = ', Total: ' + colored(str(self.total()), DETAIL_COLOR)
         else:
             tot = ''
         return f'{prefix}: {results}{drop}{tot}'
@@ -751,8 +751,8 @@ class InputHandler(PTNodeVisitor):
         if self.print_results:
             expr_full_text = node.visit(self.expr_stringifier)
             print('Result: {result} (rolled {expr})'.format(
-                expr=color(expr_full_text, EXPR_COLOR),
-                result=color(f'{children[0]:g}', RESULT_COLOR),
+                expr=colored(expr_full_text, EXPR_COLOR),
+                result=colored(f'{children[0]:g}', RESULT_COLOR),
             ))
         return children[0]
     # Each of these returns a tuple of (operator, value)
@@ -809,8 +809,8 @@ class InputHandler(PTNodeVisitor):
         logger.debug(f'Doing variable assignment: {node.flat_str()}')
         var_name, var_value = children
         print('Saving "{var}" as "{expr}"'.format(
-            var=color(var_name, RESULT_COLOR),
-            expr=color(var_value, EXPR_COLOR),
+            var=colored(var_name, RESULT_COLOR),
+            expr=colored(var_value, EXPR_COLOR),
         ))
         self.env[var_name] = var_value
     def visit_ListVarsCommand(self, node, children):
@@ -818,7 +818,7 @@ class InputHandler(PTNodeVisitor):
     def visit_DeleteCommand(self, node, children):
         var_name = children[-1]
         print('Deleting saved value for "{var}".'.format(
-            var=color(var_name, RESULT_COLOR)))
+            var=colored(var_name, RESULT_COLOR)))
         try:
             self.env.pop(var_name)
         except KeyError as ex:
